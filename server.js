@@ -16,14 +16,16 @@ function cacheGet(k){ const i=cache.get(k); if(!i||Date.now()>i.exp){cache.delet
 function cacheSet(k,d,ttl){ cache.set(k,{data:d,exp:Date.now()+ttl}); }
 
 async function sofaFetch(path){
-  const r = await fetch(`${BASE}/${path}`, {headers: HEADERS});
-  const data = await r.json();
-  console.log(`GET ${path} -> ${r.status}`, JSON.stringify(data).substring(0,200));
-  return {status: r.status, data};
+  const url = `${BASE}/${path}`;
+  console.log('Fetching:', url);
+  const r = await fetch(url, {headers: HEADERS});
+  const text = await r.text();
+  console.log(`Status: ${r.status}, Body: ${text.substring(0,300)}`);
+  try{ return {status: r.status, data: JSON.parse(text)}; }
+  catch(e){ return {status: r.status, data: {error: text}}; }
 }
 
-// â”€â”€ HEALTH â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-app.get('/', (req,res) => res.json({status:'Scout Pro v4.0 ok'}));
+app.get('/', (req,res) => res.json({status:'Scout Pro v5.0 ok'}));
 
 // â”€â”€ BUSCAR TIME â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.get('/api/teams', async(req,res) => {
@@ -33,24 +35,39 @@ app.get('/api/teams', async(req,res) => {
   const cached = cacheGet(ck);
   if(cached) return res.json({...cached, fromCache:true});
   try{
-    const {status, data} = await sofaFetch(`search?query=${encodeURIComponent(q)}`);
-    if(status !== 200) return res.status(status).json({error: data.message||'Erro na busca'});
+    // Usar endpoint search geral
+    const {status, data} = await sofaFetch(`search?query=${encodeURIComponent(q)}&page=0`);
+    console.log('Search keys:', Object.keys(data));
     
-    const results = data.results || [];
-    const teams = results
-      .filter(r => r.type === 'team' || r.entity?.type === 'team')
-      .slice(0,8)
-      .map(r => {
-        const t = r.entity || r;
-        return {
-          id: t.id,
-          name: t.name || t.shortName,
-          logo: `https://api.sofascore.app/api/v1/team/${t.id}/image`,
-          country: t.country?.name || ''
-        };
-      });
-    const result = {teams};
-    cacheSet(ck, result, 3600000);
+    let teams = [];
+    
+    // Tentar diferentes estruturas de resposta
+    if(data.results){
+      teams = data.results
+        .filter(r => r.type === 'team')
+        .slice(0,8)
+        .map(r => ({
+          id: r.entity?.id || r.id,
+          name: r.entity?.name || r.name,
+          logo: `https://api.sofascore.app/api/v1/team/${r.entity?.id || r.id}/image`,
+          country: r.entity?.country?.name || r.country?.name || ''
+        }));
+    } else if(data.teams){
+      teams = data.teams.slice(0,8).map(t => ({
+        id: t.id, name: t.name,
+        logo: `https://api.sofascore.app/api/v1/team/${t.id}/image`,
+        country: t.country?.name || ''
+      }));
+    }
+
+    if(!teams.length){
+      // Fallback: tentar endpoint de busca alternativo
+      const {data: d2} = await sofaFetch(`categories/list?sport=football`);
+      console.log('Fallback keys:', Object.keys(d2));
+    }
+
+    const result = {teams, debug: Object.keys(data)};
+    cacheSet(ck, {teams}, 3600000);
     res.json(result);
   }catch(e){
     console.error('Teams error:', e.message);
@@ -66,14 +83,13 @@ app.get('/api/squad/:teamId', async(req,res) => {
   if(cached) return res.json({...cached, fromCache:true});
   try{
     const {status, data} = await sofaFetch(`teams/get-squad?teamId=${teamId}`);
-    if(status !== 200) return res.status(status).json({error: data.message||'Erro no elenco'});
+    console.log('Squad keys:', Object.keys(data));
     
-    const members = data.players || data.squad || data.members || [];
+    const members = data.players || data.squad || data.members || data.data || [];
     const players = members.map(m => {
       const p = m.player || m;
       return {
-        id: p.id,
-        name: p.name || p.shortName || 'â€”',
+        id: p.id, name: p.name || p.shortName || 'â€”',
         position: mapPos(p.position || m.position),
         photo: `https://api.sofascore.app/api/v1/player/${p.id}/image`
       };
@@ -96,12 +112,11 @@ app.get('/api/player/:playerId/stats', async(req,res) => {
   const cached = cacheGet(ck);
   if(cached) return res.json({...cached, fromCache:true});
   try{
-    // Buscar Ãºltimos jogos do TIME e cruzar com stats do jogador
-    const {status: es, data: ed} = await sofaFetch(`teams/get-last-matches?teamId=${teamId}&pageIndex=0`);
-    if(es !== 200) return res.status(es).json({error: ed.message||'Erro nos jogos'});
+    const {status, data} = await sofaFetch(`teams/get-last-matches?teamId=${teamId}&pageIndex=0`);
+    console.log('Last matches keys:', Object.keys(data));
     
-    const events = (ed.events || [])
-      .filter(e => e.status?.type === 'finished')
+    const events = (data.events || data.matches || data.data || [])
+      .filter(e => e.status?.type === 'finished' || e.status?.description === 'Ended')
       .slice(0,5);
     
     if(!events.length) return res.status(404).json({error:'Nenhum jogo encontrado'});
@@ -110,15 +125,14 @@ app.get('/api/player/:playerId/stats', async(req,res) => {
     for(const ev of events){
       const isHome = ev.homeTeam?.id === parseInt(teamId);
       const opponent = isHome ? ev.awayTeam?.name : ev.homeTeam?.name;
-      const hg = ev.homeScore?.current ?? 0;
-      const ag = ev.awayScore?.current ?? 0;
-      const mg = isHome ? hg : ag;
-      const og = isHome ? ag : hg;
+      const hg = ev.homeScore?.current ?? ev.homeScore?.normaltime ?? 0;
+      const ag = ev.awayScore?.current ?? ev.awayScore?.normaltime ?? 0;
+      const mg = isHome ? hg : ag, og = isHome ? ag : hg;
       const score = `${mg}-${og}`;
       const result = mg > og ? 'W' : mg < og ? 'L' : 'D';
       const d = new Date((ev.startTimestamp || 0) * 1000);
       const date = `${d.getDate().toString().padStart(2,'0')}/${(d.getMonth()+1).toString().padStart(2,'0')}/${d.getFullYear()}`;
-      const comp = ev.tournament?.name || ev.season?.name || 'â€”';
+      const comp = ev.tournament?.name || 'â€”';
 
       let stats = {chutes:null,desarmes:null,ftc:null,fts:null,amarelos:null,vermelhos:null,defesas:null};
       try{
@@ -134,14 +148,13 @@ app.get('/api/player/:playerId/stats', async(req,res) => {
             chutes:   s.totalShots ?? s.shots?.total ?? null,
             desarmes: s.tackles ?? null,
             ftc:      s.fouls ?? s.foulsCommitted ?? null,
-            fts:      s.wasFouled ?? s.foulsSuffered ?? null,
+            fts:      s.wasFouled ?? null,
             amarelos: s.yellowCards ?? null,
             vermelhos:s.redCards ?? null,
             defesas:  s.saves ?? null,
           };
         }
-      }catch(e){ console.log('player stats err:', e.message); }
-
+      }catch(e){}
       jogos.push({date, opponent: opponent||'â€”', score, result, comp, ...stats});
     }
 
@@ -157,12 +170,12 @@ app.get('/api/player/:playerId/stats', async(req,res) => {
 function mapPos(pos){
   if(!pos) return 'Unknown';
   const p = pos.toLowerCase();
-  if(p === 'g' || p.includes('goalkeeper') || p.includes('goleiro')) return 'Goalkeeper';
-  if(p === 'd' || p.includes('defender') || p.includes('back')) return 'Defender';
-  if(p === 'm' || p.includes('midfielder') || p.includes('medio')) return 'Midfielder';
-  if(p === 'f' || p.includes('forward') || p.includes('attacker') || p.includes('striker')) return 'Forward';
+  if(p==='g'||p.includes('goalkeeper')) return 'Goalkeeper';
+  if(p==='d'||p.includes('defender')) return 'Defender';
+  if(p==='m'||p.includes('midfielder')) return 'Midfielder';
+  if(p==='f'||p.includes('forward')||p.includes('attacker')) return 'Forward';
   return pos;
 }
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Scout Pro v4.0 porta ${PORT}`));
+app.listen(PORT, () => console.log(`Scout Pro v5.0 porta ${PORT}`));
