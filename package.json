@@ -1,7 +1,7 @@
 {
   "name": "scoutpro-backend",
-  "version": "1.0.0",
-  "description": "Scout Pro Backend API",
+  "version": "2.0.0",
+  "description": "Scout Pro - Backend de scout de futebol para apostas",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
@@ -12,7 +12,10 @@
     "express": "^4.18.2",
     "node-fetch": "^3.3.2"
   },
+  "devDependencies": {
+    "nodemon": "^3.0.1"
+  },
   "engines": {
-    "node": ">=18"
+    "node": ">=18.0.0"
   }
 }
