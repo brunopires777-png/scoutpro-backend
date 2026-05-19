@@ -1,189 +1,575 @@
 const express = require('express');
 const cors = require('cors');
-const fetch = (...args) => import('node-fetch').then(({default: f}) => f(...args));
+const fetch = (...args) => import('node-fetch').then(({ default: f }) => f(...args));
 
 const app = express();
+const PORT = process.env.PORT || 3000;
+const BSD_TOKEN = process.env.BSD_TOKEN || 'dddbf69d96a0efa0ffeb9f8d0c791528b61d1c1d';
+const BASE_URL = 'https://sports.bzzoiro.com/api/v2';
+
 app.use(cors());
 app.use(express.json());
 
-const BSD_KEY  = 'dddbf69d96a0efa0ffeb9f8d0c791528b61d1c1d';
-const BSD_BASE = 'https://sports.bzzoiro.com/api/v2';
-const HEADERS  = { 'Authorization': `Token ${BSD_KEY}` };
-
-// ── CACHE ────────────────────────────────────────
-const cache = new Map();
-function cacheGet(k){ const i=cache.get(k); if(!i||Date.now()>i.exp){cache.delete(k);return null;} return i.data; }
-function cacheSet(k,d,ttl){ cache.set(k,{data:d,exp:Date.now()+ttl}); }
-
-async function bsd(path){
-  const url = `${BSD_BASE}${path}`;
-  console.log('[BSD]', url);
-  const r = await fetch(url, {headers: HEADERS});
-  const text = await r.text();
-  console.log(`[${r.status}]`, text.substring(0,500));
-  try{ return {ok:r.ok, status:r.status, data:JSON.parse(text)}; }
-  catch(e){ return {ok:false, status:r.status, data:{error:text.substring(0,200)}}; }
+// ─────────────────────────────────────────────
+// HELPER: chamada autenticada para a BSD v2
+// ─────────────────────────────────────────────
+async function bsd(path, params = {}) {
+  const url = new URL(`${BASE_URL}${path}`);
+  Object.entries(params).forEach(([k, v]) => {
+    if (v !== undefined && v !== null) url.searchParams.set(k, v);
+  });
+  const res = await fetch(url.toString(), {
+    headers: { Authorization: `Token ${BSD_TOKEN}` }
+  });
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`BSD ${res.status}: ${err}`);
+  }
+  return res.json();
 }
 
-app.get('/', (req,res) => res.json({status:'Scout Pro v13.0 ok', time:new Date().toISOString()}));
-app.get('/api/clear-cache', (req,res) => { cache.clear(); res.json({ok:true}); });
+// Helper: data de hoje no formato YYYY-MM-DD (UTC)
+function today() {
+  return new Date().toISOString().slice(0, 10);
+}
+function dayOffset(n) {
+  const d = new Date();
+  d.setDate(d.getDate() + n);
+  return d.toISOString().slice(0, 10);
+}
 
-// ── BUSCAR TIME ──────────────────────────────────
-app.get('/api/teams', async(req,res) => {
-  const {q, nocache} = req.query;
-  if(!q) return res.status(400).json({error:'Nome obrigatorio'});
-  const ck = `teams_${q.toLowerCase().trim()}`;
-  if(!nocache){ const c=cacheGet(ck); if(c) return res.json({...c,fromCache:true}); }
-  try{
-    const {ok, data} = await bsd(`/teams/?name=${encodeURIComponent(q)}&limit=8`);
-    if(!ok) return res.status(500).json({error: data.detail||data.error||'Erro na busca'});
-    const teams = (data.results||[]).map(t=>({
-      id:      t.id,
-      name:    t.name,
-      short:   t.short_name||t.name,
-      country: t.country||'',
-      logo:    `https://sports.bzzoiro.com/img/team/${t.id}/`
-    }));
-    console.log(`Times para "${q}":`, teams.map(t=>`${t.name}(${t.id})`).join(', '));
-    if(teams.length) cacheSet(ck,{teams},3600000);
-    res.json({teams});
-  }catch(e){ res.status(500).json({error:e.message}); }
+// ─────────────────────────────────────────────
+// STATUS / HEALTH
+// ─────────────────────────────────────────────
+app.get('/api/status', (req, res) => {
+  res.json({
+    status: 'online',
+    app: 'Scout Pro',
+    versao: '2.0',
+    servidor: 'ativo',
+    timestamp: new Date().toISOString()
+  });
 });
 
-// ── ELENCO DO TIME ───────────────────────────────
-app.get('/api/squad/:teamId', async(req,res) => {
-  const {teamId} = req.params;
-  const {nocache} = req.query;
-  const ck = `squad_${teamId}`;
-  if(!nocache){ const c=cacheGet(ck); if(c) return res.json({...c,fromCache:true}); }
-  try{
-    const {ok, data} = await bsd(`/teams/${teamId}/squad/`);
-    if(!ok) return res.status(500).json({error: data.detail||'Elenco não encontrado'});
-    const players = (data.players||[]).map(p=>({
-      id:       p.id,
-      name:     p.name||p.short_name||'—',
-      position: mapPos(p.position),
-      photo:    `https://sports.bzzoiro.com/img/player/${p.id}/`
-    }));
-    console.log(`Elenco ${teamId}: ${players.length} jogadores`);
-    if(players.length) cacheSet(ck,{players},86400000);
-    res.json({players});
-  }catch(e){ res.status(500).json({error:e.message}); }
+// ─────────────────────────────────────────────
+// LIGAS
+// ─────────────────────────────────────────────
+app.get('/api/leagues', async (req, res) => {
+  try {
+    const data = await bsd('/leagues/', { is_active: true, limit: 100 });
+    res.json(data);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
-// ── STATS DO JOGADOR ─────────────────────────────
-app.get('/api/player/:playerId/stats', async(req,res) => {
-  const {playerId} = req.params;
-  const {teamId, nocache} = req.query;
-  const ck = `stats_${playerId}_${teamId}`;
-  if(!nocache){ const c=cacheGet(ck); if(c) return res.json({...c,fromCache:true}); }
+app.get('/api/leagues/:id/standings', async (req, res) => {
+  try {
+    const data = await bsd(`/leagues/${req.params.id}/standings/`);
+    res.json(data);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
 
-  try{
-    // 1. Buscar últimos jogos finalizados do time no ano atual
-    const anoAtual = new Date().getFullYear();
-    const dataInicio = `${anoAtual-1}-06-01T00:00:00Z`;
-    const dataFim    = `${anoAtual}-12-31T23:59:59Z`;
+app.get('/api/leagues/:id/season', async (req, res) => {
+  try {
+    const data = await bsd(`/leagues/${req.params.id}/season/`);
+    res.json(data);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
 
-    const {ok:fe, data:fixData} = await bsd(
-      `/teams/${teamId}/fixtures/?status=finished&date_from=${dataInicio}&date_to=${dataFim}&limit=50`
-    );
-    if(!fe) return res.status(500).json({error: fixData.detail||'Jogos não encontrados'});
-
-    // Ordenar decrescente e pegar 5 mais recentes
-    const allFix = fixData.results||[];
-    const fixtures = allFix
-      .sort((a,b) => new Date(b.event_date) - new Date(a.event_date))
-      .slice(0,5);
-
-    console.log(`Fixtures ${teamId}: ${allFix.length} total, usando ${fixtures.length}`);
-
-    if(!fixtures.length) return res.status(404).json({
-      error:'Nenhum jogo encontrado para este time',
-      debug:{total:allFix.length, dateRange:`${dataInicio} - ${dataFim}`}
+// ─────────────────────────────────────────────
+// JOGOS — hoje, amanhã, semana, ao vivo
+// ─────────────────────────────────────────────
+app.get('/api/jogos/hoje', async (req, res) => {
+  try {
+    const { league_id } = req.query;
+    const data = await bsd('/events/', {
+      date_from: today(),
+      date_to: today(),
+      league_id,
+      limit: 100
     });
+    res.json(data);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
 
-    // 2. Para cada jogo, buscar stats do jogador
-    const jogos = [];
-    for(const fix of fixtures){
-      const eventId = fix.id;
-      const isHome  = fix.home_team_id === parseInt(teamId);
-      const opp     = isHome ? fix.away_team : fix.home_team;
-      const hg      = fix.home_score ?? 0;
-      const ag      = fix.away_score ?? 0;
-      const mg      = isHome ? hg : ag;
-      const og      = isHome ? ag : hg;
-      const score   = `${mg}-${og}`;
-      const result  = mg>og?'W':mg<og?'L':'D';
-      const d       = new Date(fix.event_date||0);
-      const date    = `${d.getDate().toString().padStart(2,'0')}/${(d.getMonth()+1).toString().padStart(2,'0')}/${d.getFullYear()}`;
-      const comp    = fix.league_name||'—';
+app.get('/api/jogos/amanha', async (req, res) => {
+  try {
+    const { league_id } = req.query;
+    const data = await bsd('/events/', {
+      date_from: dayOffset(1),
+      date_to: dayOffset(1),
+      league_id,
+      limit: 100
+    });
+    res.json(data);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
 
-      let stats = {chutes:null,chutes_gol:null,desarmes:null,ftc:null,fts:null,amarelos:null,vermelhos:null,defesas:null};
+app.get('/api/jogos/semana', async (req, res) => {
+  try {
+    const { league_id } = req.query;
+    const data = await bsd('/events/', {
+      date_from: today(),
+      date_to: dayOffset(7),
+      league_id,
+      limit: 200
+    });
+    res.json(data);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
 
-      try{
-        const {ok:ps, data:psData} = await bsd(`/events/${eventId}/player-stats/`);
-        if(ps && psData.player_stats){
-          const found = psData.player_stats.find(p => p.player_id === parseInt(playerId));
-          if(found){
-            console.log(`Stats player ${playerId} event ${eventId}:`, JSON.stringify(found).substring(0,300));
-            stats = {
-              chutes:     found.total_shots     ?? null,
-              chutes_gol: found.shots_on_target ?? null,
-              desarmes:   found.total_tackle    ?? found.interception ?? null,
-              ftc:        found.fouls_committed ?? null,
-              fts:        found.fouls_drawn     ?? null,
-              amarelos:   found.yellow_card     ?? null,
-              vermelhos:  found.red_card        ?? null,
-              defesas:    found.saves           ?? null,
-            };
-          } else {
-            console.log(`Player ${playerId} NOT in event ${eventId}. Sample:`, 
-              psData.player_stats?.slice(0,3).map(p=>({id:p.player_id,name:p.player_name})));
-          }
-        }
-      }catch(e){ console.log(`Stats error event ${eventId}:`, e.message); }
+app.get('/api/jogos/ao-vivo', async (req, res) => {
+  try {
+    const { league_id } = req.query;
+    const data = await bsd('/events/live/', { league_id });
+    res.json(data);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
 
-      jogos.push({date, opponent:opp||'—', score, result, comp, ...stats});
+// Detalhes completos de um jogo
+app.get('/api/jogos/:id', async (req, res) => {
+  try {
+    const id = req.params.id;
+    const [evento, stats, incidents, odds, lineups, playerStats, predicao] = await Promise.allSettled([
+      bsd(`/events/${id}/`),
+      bsd(`/events/${id}/stats/`),
+      bsd(`/events/${id}/incidents/`),
+      bsd(`/events/${id}/odds/`),
+      bsd(`/events/${id}/lineups/`),
+      bsd(`/events/${id}/player-stats/`),
+      bsd(`/events/${id}/prediction/`)
+    ]);
+
+    res.json({
+      evento: evento.status === 'fulfilled' ? evento.value : null,
+      stats: stats.status === 'fulfilled' ? stats.value : null,
+      incidents: incidents.status === 'fulfilled' ? incidents.value : null,
+      odds: odds.status === 'fulfilled' ? odds.value : null,
+      lineups: lineups.status === 'fulfilled' ? lineups.value : null,
+      playerStats: playerStats.status === 'fulfilled' ? playerStats.value : null,
+      predicao: predicao.status === 'fulfilled' ? predicao.value : null
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Odds comparativo (todas as casas)
+app.get('/api/jogos/:id/odds', async (req, res) => {
+  try {
+    const data = await bsd(`/events/${req.params.id}/odds/comparison/`);
+    res.json(data);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Predição ML por jogo
+app.get('/api/jogos/:id/predicao', async (req, res) => {
+  try {
+    const data = await bsd(`/events/${req.params.id}/prediction/`);
+    res.json(data);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Stats do jogo (xG, shotmap, momentum)
+app.get('/api/jogos/:id/stats', async (req, res) => {
+  try {
+    const data = await bsd(`/events/${req.params.id}/stats/`);
+    res.json(data);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Escalações (confirmada ou predita por IA)
+app.get('/api/jogos/:id/lineups', async (req, res) => {
+  try {
+    const data = await bsd(`/events/${req.params.id}/lineups/`);
+    res.json(data);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Timeline de gols/cartões/substituições
+app.get('/api/jogos/:id/incidents', async (req, res) => {
+  try {
+    const data = await bsd(`/events/${req.params.id}/incidents/`);
+    res.json(data);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Stats de jogadores do jogo
+app.get('/api/jogos/:id/jogadores', async (req, res) => {
+  try {
+    const data = await bsd(`/events/${req.params.id}/player-stats/`);
+    res.json(data);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Metadata (preview IA, uniformes, curiosidades)
+app.get('/api/jogos/:id/metadata', async (req, res) => {
+  try {
+    const data = await bsd(`/events/${req.params.id}/metadata/`);
+    res.json(data);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ─────────────────────────────────────────────
+// PREDIÇÕES — lista geral
+// ─────────────────────────────────────────────
+app.get('/api/predicoes', async (req, res) => {
+  try {
+    const { league_id, date_from, date_to, min_confidence, recommended } = req.query;
+    const data = await bsd('/predictions/', {
+      status: 'upcoming',
+      league_id,
+      date_from: date_from || today(),
+      date_to: date_to || dayOffset(3),
+      min_confidence,
+      recommended,
+      limit: 100
+    });
+    res.json(data);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ─────────────────────────────────────────────
+// VALUE BETS — melhores odds do mercado
+// ─────────────────────────────────────────────
+app.get('/api/value-bets', async (req, res) => {
+  try {
+    const { market = '1x2', league_id } = req.query;
+    const data = await bsd('/odds/best/', {
+      market,
+      league_id,
+      date_from: today(),
+      date_to: dayOffset(7),
+      limit: 100
+    });
+    res.json(data);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Polymarket (predição de mercado)
+app.get('/api/polymarket', async (req, res) => {
+  try {
+    const { league_id, event_id } = req.query;
+    const data = await bsd('/odds/', {
+      // polymarket via endpoint principal filtrado
+      league_id,
+      event_id,
+      limit: 50
+    });
+    res.json(data);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ─────────────────────────────────────────────
+// TIMES
+// ─────────────────────────────────────────────
+app.get('/api/times', async (req, res) => {
+  try {
+    const { league_id, season_id, name } = req.query;
+    const data = await bsd('/teams/', { league_id, season_id, name, limit: 100 });
+    res.json(data);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/times/:id', async (req, res) => {
+  try {
+    const id = req.params.id;
+    const [time, squad, fixtures] = await Promise.allSettled([
+      bsd(`/teams/${id}/`),
+      bsd(`/teams/${id}/squad/`),
+      bsd(`/teams/${id}/fixtures/`, { date_from: dayOffset(-7), date_to: dayOffset(7), limit: 20 })
+    ]);
+    res.json({
+      time: time.status === 'fulfilled' ? time.value : null,
+      squad: squad.status === 'fulfilled' ? squad.value : null,
+      fixtures: fixtures.status === 'fulfilled' ? fixtures.value : null
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Elenco do time
+app.get('/api/times/:id/elenco', async (req, res) => {
+  try {
+    const data = await bsd(`/teams/${req.params.id}/squad/`);
+    res.json(data);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Jogos do time
+app.get('/api/times/:id/jogos', async (req, res) => {
+  try {
+    const { status, league_id, limit = 20 } = req.query;
+    const data = await bsd(`/teams/${req.params.id}/fixtures/`, {
+      status,
+      league_id,
+      date_from: dayOffset(-30),
+      date_to: dayOffset(30),
+      limit
+    });
+    res.json(data);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ─────────────────────────────────────────────
+// JOGADORES
+// ─────────────────────────────────────────────
+app.get('/api/jogadores', async (req, res) => {
+  try {
+    const { team_id, position, name, nationality_code, limit = 50 } = req.query;
+    const data = await bsd('/players/', { team_id, position, name, nationality_code, limit });
+    res.json(data);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/jogadores/:id', async (req, res) => {
+  try {
+    const id = req.params.id;
+    // Busca a temporada atual da liga principal para filtrar stats corretamente
+    const [jogador, carreira, selecao] = await Promise.allSettled([
+      bsd(`/players/${id}/`),
+      bsd(`/players/${id}/career/`),
+      bsd(`/players/${id}/national-team/`)
+    ]);
+
+    // Stats da temporada atual (pegamos o season_id do primeiro item da carreira)
+    let stats = null;
+    if (carreira.status === 'fulfilled' && carreira.value.seasons?.length > 0) {
+      const currentSeason = carreira.value.seasons[0];
+      try {
+        stats = await bsd(`/players/${id}/stats/`, {
+          season_id: currentSeason.season_id,
+          limit: 50
+        });
+      } catch (_) {
+        // se falhar, tenta sem filtro de temporada mas com date_from
+        try {
+          stats = await bsd(`/players/${id}/stats/`, {
+            date_from: `${new Date().getFullYear() - 1}-07-01`,
+            limit: 50
+          });
+        } catch (__) {}
+      }
     }
 
-    const result = {jogos};
-    cacheSet(ck, result, 43200000);
-    res.json(result);
-  }catch(e){
-    console.error('Stats error:', e.message);
-    res.status(500).json({error:e.message});
-  }
-});
-
-// ── DEBUG: ver campos reais das stats ────────────
-app.get('/api/debug/event/:eventId', async(req,res) => {
-  const {eventId} = req.params;
-  const {playerId} = req.query;
-  try{
-    const {ok, data} = await bsd(`/events/${eventId}/player-stats/`);
-    if(!ok) return res.status(500).json({error:data});
-    const sample = playerId
-      ? data.player_stats?.find(p=>p.player_id===parseInt(playerId))
-      : data.player_stats?.[0];
     res.json({
-      total_players: data.player_stats?.length,
-      sample_ids: data.player_stats?.slice(0,5).map(p=>({id:p.player_id,name:p.player_name})),
-      sample_stats: sample,
-      all_keys: sample ? Object.keys(sample) : []
+      jogador: jogador.status === 'fulfilled' ? jogador.value : null,
+      carreira: carreira.status === 'fulfilled' ? carreira.value : null,
+      selecao: selecao.status === 'fulfilled' ? selecao.value : null,
+      stats
     });
-  }catch(e){ res.status(500).json({error:e.message}); }
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
-function mapPos(pos){
-  if(!pos) return 'Unknown';
-  switch(pos.toUpperCase()){
-    case 'G': return 'Goalkeeper';
-    case 'D': return 'Defender';
-    case 'M': return 'Midfielder';
-    case 'F': return 'Forward';
-    default:  return pos;
-  }
-}
+// Stats do jogador com season_id dinâmico
+app.get('/api/jogadores/:id/stats', async (req, res) => {
+  try {
+    const { season_id, league_id, limit = 30 } = req.query;
+    let sId = season_id;
 
-const PORT = process.env.PORT||3000;
-app.listen(PORT, ()=>console.log(`Scout Pro v13.0 porta ${PORT}`));
+    // Se não veio season_id, busca a temporada atual do jogador
+    if (!sId) {
+      try {
+        const carreira = await bsd(`/players/${req.params.id}/career/`);
+        if (carreira.seasons?.length > 0) {
+          sId = carreira.seasons[0].season_id;
+        }
+      } catch (_) {}
+    }
+
+    const data = await bsd(`/players/${req.params.id}/stats/`, {
+      season_id: sId,
+      league_id,
+      limit,
+      date_from: sId ? undefined : `${new Date().getFullYear() - 1}-07-01`
+    });
+    res.json(data);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Transferências do jogador
+app.get('/api/jogadores/:id/transferencias', async (req, res) => {
+  try {
+    const data = await bsd(`/players/${req.params.id}/transfers/`);
+    res.json(data);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ─────────────────────────────────────────────
+// TREINADORES
+// ─────────────────────────────────────────────
+app.get('/api/treinadores', async (req, res) => {
+  try {
+    const { team_id, league_id, tactical_profile, name, limit = 50 } = req.query;
+    const data = await bsd('/managers/', { team_id, league_id, tactical_profile, name, limit });
+    res.json(data);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/treinadores/:id', async (req, res) => {
+  try {
+    const id = req.params.id;
+    const [manager, carreira] = await Promise.allSettled([
+      bsd(`/managers/${id}/`),
+      bsd(`/managers/${id}/career/`)
+    ]);
+    res.json({
+      manager: manager.status === 'fulfilled' ? manager.value : null,
+      carreira: carreira.status === 'fulfilled' ? carreira.value : null
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ─────────────────────────────────────────────
+// ÁRBITROS
+// ─────────────────────────────────────────────
+app.get('/api/arbitros', async (req, res) => {
+  try {
+    const { league_id, name, limit = 50 } = req.query;
+    const data = await bsd('/referees/', { league_id, name, limit });
+    res.json(data);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/arbitros/:id/jogos', async (req, res) => {
+  try {
+    const data = await bsd(`/referees/${req.params.id}/matches/`, {
+      date_from: dayOffset(-30),
+      date_to: dayOffset(14),
+      limit: 20
+    });
+    res.json(data);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ─────────────────────────────────────────────
+// IMAGENS (proxy das imagens BSD sem revelar origem)
+// ─────────────────────────────────────────────
+app.get('/img/player/:id', async (req, res) => {
+  try {
+    const r = await fetch(`https://sports.bzzoiro.com/img/player/${req.params.id}/`);
+    res.set('Content-Type', r.headers.get('content-type') || 'image/png');
+    res.set('Cache-Control', 'public, max-age=86400');
+    r.body.pipe(res);
+  } catch {
+    res.status(404).end();
+  }
+});
+
+app.get('/img/team/:id', async (req, res) => {
+  try {
+    const r = await fetch(`https://sports.bzzoiro.com/img/team/${req.params.id}/`);
+    res.set('Content-Type', r.headers.get('content-type') || 'image/png');
+    res.set('Cache-Control', 'public, max-age=86400');
+    r.body.pipe(res);
+  } catch {
+    res.status(404).end();
+  }
+});
+
+app.get('/img/league/:id', async (req, res) => {
+  try {
+    const r = await fetch(`https://sports.bzzoiro.com/img/league/${req.params.id}/`);
+    res.set('Content-Type', r.headers.get('content-type') || 'image/png');
+    res.set('Cache-Control', 'public, max-age=86400');
+    r.body.pipe(res);
+  } catch {
+    res.status(404).end();
+  }
+});
+
+app.get('/img/manager/:id', async (req, res) => {
+  try {
+    const r = await fetch(`https://sports.bzzoiro.com/img/manager/${req.params.id}/`);
+    res.set('Content-Type', r.headers.get('content-type') || 'image/png');
+    res.set('Cache-Control', 'public, max-age=86400');
+    r.body.pipe(res);
+  } catch {
+    res.status(404).end();
+  }
+});
+
+// ─────────────────────────────────────────────
+// ODDS — lista e comparativo
+// ─────────────────────────────────────────────
+app.get('/api/odds', async (req, res) => {
+  try {
+    const { event_id, league_id, market, bookmaker_slug, limit = 50 } = req.query;
+    const data = await bsd('/odds/', { event_id, league_id, market, bookmaker_slug, limit });
+    res.json(data);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/bookmakers', async (req, res) => {
+  try {
+    const data = await bsd('/bookmakers/');
+    res.json(data);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ─────────────────────────────────────────────
+// START
+// ─────────────────────────────────────────────
+app.listen(PORT, () => {
+  console.log(`Scout Pro Backend v2 rodando na porta ${PORT}`);
+});
