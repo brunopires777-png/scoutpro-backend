@@ -71,7 +71,24 @@ app.get('/api/leagues/:id/standings', async (req, res) => {
     const data = await fetch(`https://sports.bzzoiro.com/api/leagues/${req.params.id}/standings/`, {
       headers: { Authorization: `Token ${BSD_TOKEN}` }
     }).then(r => r.json());
-    // normaliza: BSD retorna standings[].team e standings[].team_id
+    // Normaliza: BSD retorna standings[].team (string) e standings[].team_id
+    // O frontend espera standings[].team_name — fazemos o mapeamento aqui
+    if (data.standings) {
+      data.standings = data.standings.map(s => ({
+        ...s,
+        team_name: s.team_name || s.team || '—',
+        team_id:   s.team_id   || s.id  || null,
+        pts:       s.pts       || s.points || 0,
+        gf:        s.gf        || s.goals_for || 0,
+        ga:        s.ga        || s.goals_against || 0,
+        gd:        s.gd        || s.goal_diff || (s.goals_for - s.goals_against) || 0,
+        played:    s.played    || s.games || 0,
+        won:       s.won       || s.wins  || 0,
+        drawn:     s.drawn     || s.draws || 0,
+        lost:      s.lost      || s.losses|| 0,
+        form:      s.form      || '',
+      }));
+    }
     res.json(data);
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -323,12 +340,24 @@ app.get('/api/teams', async (req, res) => {
   try {
     const { q } = req.query;
     if (!q) return res.status(400).json({ error: 'Parâmetro q obrigatório' });
-    // BSD v1 usa ?name= para busca de times
-    const url = `https://sports.bzzoiro.com/api/teams/?name=${encodeURIComponent(q)}&limit=20`;
-    const data = await fetch(url, {
-      headers: { Authorization: `Token ${BSD_TOKEN}` }
-    }).then(r => r.json());
-    const teams = (data.results || []).map(t => ({
+    // BSD v1: busca times por nome — tenta page by page e filtra localmente
+    // Busca até 500 resultados e filtra pelo nome digitado
+    const allTeams = [];
+    for (let page = 1; page <= 5; page++) {
+      const url = `https://sports.bzzoiro.com/api/teams/?page=${page}&limit=100`;
+      const data = await fetch(url, {
+        headers: { Authorization: `Token ${BSD_TOKEN}` }
+      }).then(r => r.json());
+      const items = data.results || [];
+      allTeams.push(...items);
+      if (!data.next) break;
+    }
+    const term = q.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+    const filtered = allTeams.filter(t => {
+      const name = (t.name||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+      return name.includes(term);
+    }).slice(0, 15);
+    const teams = filtered.map(t => ({
       id: t.id,
       name: t.name,
       logo: `https://scoutpro-backend-9q23.onrender.com/img/team/${t.id}`,
