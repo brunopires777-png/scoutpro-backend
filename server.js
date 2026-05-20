@@ -352,6 +352,8 @@ app.get('/api/teams', async (req, res) => {
         headers: { Authorization: `Token ${BSD_TOKEN}` }
       }).then(r => r.json());
       const items = data.results || [];
+      // Loga os primeiros 20 nomes para debug
+      if (page === 1) console.log('TEAMS page1 sample:', items.slice(0,20).map(t=>t.name+' ('+t.id+')').join(', '));
       items.forEach(t => {
         if (norm(t.name).includes(term) && !seen.has(t.id)) {
           seen.set(t.id, { id: t.id, name: t.name, country: t.country || '' });
