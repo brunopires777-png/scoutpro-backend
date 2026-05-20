@@ -473,39 +473,76 @@ app.get('/api/player/:id/stats', async (req, res) => {
     // Ordena por data mais recente
     raw.sort((a, b) => new Date(b.event?.event_date || 0) - new Date(a.event?.event_date || 0));
 
+    // DEBUG: loga o primeiro item para ver a estrutura real da BSD
+    if (raw.length > 0) {
+      console.log('BSD player-stats sample keys:', Object.keys(raw[0]));
+      console.log('BSD player-stats sample:', JSON.stringify(raw[0]).slice(0, 800));
+    }
+
     // Mapeia para o formato que o frontend scout espera
-    const jogos = raw.slice(0, 15).map(g => {
+    const jogos = raw.slice(0, 7).map(g => {
       const ev = g.event || {};
-      const isHome = g.team_id === (ev.home_team_obj?.id || ev.home_team_id);
-      const myScore = isHome ? ev.home_score : ev.away_score;
-      const oppScore = isHome ? ev.away_score : ev.home_score;
-      const opponent = isHome ? ev.away_team : ev.home_team;
+
+      // Descobre se o jogador jogou em casa ou fora
+      // BSD pode retornar: g.team_id, g.player?.team_id, g.is_home, g.side
+      const playerTeamId = g.team_id || g.player?.team_id || g.player?.current_team_id;
+      const isHome = g.is_home !== undefined
+        ? g.is_home
+        : (playerTeamId && ev.home_team_id)
+          ? String(playerTeamId) === String(ev.home_team_id)
+          : null;
+
+      // Se isHome for null (não conseguimos determinar), usa o time que NÃO é o do jogador
+      let opponent, myScore, oppScore;
+      if (isHome === true) {
+        opponent = ev.away_team;
+        myScore  = ev.home_score;
+        oppScore = ev.away_score;
+      } else if (isHome === false) {
+        opponent = ev.home_team;
+        myScore  = ev.away_score;
+        oppScore = ev.home_score;
+      } else {
+        // fallback: pega o time que aparece diferente do time buscado
+        const teamId = String(playerTeamId || '');
+        if (teamId && String(ev.home_team_id) === teamId) {
+          opponent = ev.away_team;
+          myScore  = ev.home_score;
+          oppScore = ev.away_score;
+        } else {
+          opponent = ev.home_team;
+          myScore  = ev.away_score;
+          oppScore = ev.home_score;
+        }
+      }
+
       let result = '—';
       if (myScore != null && oppScore != null) {
         result = myScore > oppScore ? 'W' : myScore < oppScore ? 'L' : 'D';
       }
+
       const score = (ev.home_score != null && ev.away_score != null)
-        ? `${ev.home_score}-${ev.away_score}`
-        : '—';
+        ? `${ev.home_score}-${ev.away_score}` : '—';
+
       const data_jogo = ev.event_date
         ? new Date(ev.event_date).toLocaleDateString('pt-BR', { day:'2-digit', month:'2-digit', timeZone:'America/Sao_Paulo' })
         : '—';
 
+      // Campos BSD v1 — tenta todos os nomes possíveis
       return {
         opponent:   opponent || '—',
         score,
         result,
-        comp:       ev.league?.name || ev.league_name || '—',
+        comp:       ev.league?.name || ev.league_name || g.competition || '—',
         data:       data_jogo,
-        // stats — campos exatos da BSD v1
-        chutes:     g.total_shots ?? null,
-        chutes_gol: g.shots_on_target ?? null,
-        desarmes:   g.tackles ?? null,
-        ftc:        g.fouls_committed ?? null,
-        fts:        g.fouls_drawn ?? null,
-        amarelos:   g.yellow_cards ?? null,
-        vermelhos:  g.red_cards ?? null,
-        defesas:    g.saves ?? null,
+        chutes:     g.total_shots     ?? g.shots         ?? null,
+        chutes_gol: g.shots_on_target ?? g.shots_on_goal  ?? null,
+        desarmes:   g.tackles         ?? g.tackles_won    ?? g.duels_won ?? null,
+        ftc:        g.fouls_committed ?? g.fouls          ?? null,
+        fts:        g.fouls_drawn     ?? g.was_fouled     ?? null,
+        amarelos:   g.yellow_cards    ?? g.yellow         ?? null,
+        vermelhos:  g.red_cards       ?? g.red            ?? null,
+        defesas:    g.saves           ?? g.goalkeeper_saves ?? null,
       };
     });
 
