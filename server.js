@@ -335,8 +335,8 @@ app.get('/api/polymarket', async (req, res) => {
 // ROTAS DE COMPATIBILIDADE (frontend original)
 // ─────────────────────────────────────────────
 
-// Busca times pelo nome — usa /api/players/ para encontrar o time pelo nome do clube
-// A BSD não tem endpoint de busca de times por nome diretamente
+// Busca times — BSD tem GET /api/teams/ com paginação
+// Filtra por nome localmente já que não há parâmetro de busca por nome
 app.get('/api/teams', async (req, res) => {
   try {
     const { q } = req.query;
@@ -346,102 +346,101 @@ app.get('/api/teams', async (req, res) => {
     const term = norm(q);
     const seen = new Map();
 
-    // Busca jogadores com esse nome de time (team_name contendo o termo)
-    // A BSD retorna jogadores com seu time atual — extraímos os times únicos
-    const playersUrl = `https://sports.bzzoiro.com/api/players/?limit=100`;
-    const pData = await fetch(playersUrl, {
-      headers: { Authorization: `Token ${BSD_TOKEN}` }
-    }).then(r => r.json());
-
-    // Busca nos eventos recentes — teams aparecem em home_team/away_team
-    const evUrl = `https://sports.bzzoiro.com/api/events/?date_from=${
-      new Date(Date.now()-30*86400000).toISOString().slice(0,10)
-    }&date_to=${
-      new Date(Date.now()+7*86400000).toISOString().slice(0,10)
-    }&limit=200`;
-    const evData = await fetch(evUrl, {
-      headers: { Authorization: `Token ${BSD_TOKEN}` }
-    }).then(r => r.json());
-
-    (evData.results || []).forEach(ev => {
-      if(norm(ev.home_team).includes(term) && ev.home_team_id && !seen.has(ev.home_team_id)) {
-        seen.set(ev.home_team_id, { id: ev.home_team_id, name: ev.home_team, country: '' });
-      }
-      if(norm(ev.away_team).includes(term) && ev.away_team_id && !seen.has(ev.away_team_id)) {
-        seen.set(ev.away_team_id, { id: ev.away_team_id, name: ev.away_team, country: '' });
-      }
-    });
-
-    // Se ainda não achou, tenta via standings das ligas principais
-    if(seen.size === 0) {
-      const leaguesData = await fetch('https://sports.bzzoiro.com/api/leagues/', {
+    // Busca todas as páginas de /api/teams/ (max 500 por página)
+    for (let page = 1; page <= 3; page++) {
+      const data = await fetch(`https://sports.bzzoiro.com/api/teams/?page=${page}&limit=500`, {
         headers: { Authorization: `Token ${BSD_TOKEN}` }
       }).then(r => r.json());
-      const leagueIds = (leaguesData.results||[]).map(l=>l.id).slice(0,15);
-      for(const lid of leagueIds) {
-        try {
-          const std = await fetch(`https://sports.bzzoiro.com/api/leagues/${lid}/standings/`, {
-            headers: { Authorization: `Token ${BSD_TOKEN}` }
-          }).then(r => r.json());
-          (std.standings||[]).forEach(s => {
-            const tname = s.team_name||s.team||'';
-            const tid = s.team_id||s.id;
-            if(norm(tname).includes(term) && tid && !seen.has(tid)) {
-              seen.set(tid, { id: tid, name: tname, country: '' });
-            }
-          });
-          if(seen.size >= 5) break;
-        } catch(_) {}
-      }
+      const items = data.results || [];
+      items.forEach(t => {
+        if (norm(t.name).includes(term) && !seen.has(t.id)) {
+          seen.set(t.id, { id: t.id, name: t.name, country: t.country || '' });
+        }
+      });
+      if (!data.next || seen.size >= 15) break;
     }
 
-    const teams = Array.from(seen.values()).slice(0,15);
-    res.json({ teams });
+    // Fallback: busca nos eventos recentes se não achou nada
+    if (seen.size === 0) {
+      const evData = await fetch(
+        `https://sports.bzzoiro.com/api/events/?date_from=${
+          new Date(Date.now()-60*86400000).toISOString().slice(0,10)
+        }&date_to=${
+          new Date(Date.now()+7*86400000).toISOString().slice(0,10)
+        }&limit=200`,
+        { headers: { Authorization: `Token ${BSD_TOKEN}` } }
+      ).then(r => r.json());
+      (evData.results || []).forEach(ev => {
+        if (norm(ev.home_team).includes(term) && ev.home_team_id && !seen.has(ev.home_team_id))
+          seen.set(ev.home_team_id, { id: ev.home_team_id, name: ev.home_team, country: '' });
+        if (norm(ev.away_team).includes(term) && ev.away_team_id && !seen.has(ev.away_team_id))
+          seen.set(ev.away_team_id, { id: ev.away_team_id, name: ev.away_team, country: '' });
+      });
+    }
+
+    console.log(`Teams search "${q}": ${seen.size} encontrados`);
+    res.json({ teams: Array.from(seen.values()).slice(0, 15) });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
 });
 
-// teams-all não é mais necessário mas mantém para compatibilidade
 app.get('/api/teams-all', async (req, res) => res.json({ results: [], next: null }));
 
 // Elenco do time → /api/squad/:id
 app.get('/api/squad/:id', async (req, res) => {
   try {
     const id = req.params.id;
-    const url = `https://sports.bzzoiro.com/api/teams/${id}/squad/`;
-    const resp = await fetch(url, { headers: { Authorization: `Token ${BSD_TOKEN}` } });
-    const data = await resp.json();
+    let raw = [];
 
-    // Log para debug
-    console.log('SQUAD response status:', resp.status);
-    console.log('SQUAD keys:', Object.keys(data));
-    console.log('SQUAD sample:', JSON.stringify(data).slice(0, 500));
-
-    // BSD pode retornar players em diferentes formatos
-    let raw = data.results || data.players || data.squad || data.squad_list || [];
-
-    // Se veio vazio, tenta buscar jogadores pelo time via /api/players/?team=ID
-    if (!raw.length) {
-      console.log('Squad vazio, tentando /api/players/?team=', id);
-      const p2 = await fetch(`https://sports.bzzoiro.com/api/players/?team=${id}&limit=50`, {
+    // Tentativa 1: /api/teams/{id}/squad/
+    try {
+      const resp = await fetch(`https://sports.bzzoiro.com/api/teams/${id}/squad/`, {
         headers: { Authorization: `Token ${BSD_TOKEN}` }
-      }).then(r => r.json());
-      console.log('Players by team:', JSON.stringify(p2).slice(0, 500));
-      raw = p2.results || p2.players || [];
+      });
+      const data = await resp.json();
+      console.log(`SQUAD /teams/${id}/squad/ status=${resp.status} keys=${Object.keys(data)}`);
+      raw = data.results || data.players || data.squad || [];
+    } catch(e) { console.log('SQUAD t1 error:', e.message); }
+
+    // Tentativa 2: /api/players/?team={id}
+    if (!raw.length) {
+      try {
+        const resp2 = await fetch(`https://sports.bzzoiro.com/api/players/?team=${id}&limit=100`, {
+          headers: { Authorization: `Token ${BSD_TOKEN}` }
+        });
+        const data2 = await resp2.json();
+        console.log(`SQUAD /players/?team=${id} status=${resp2.status} count=${data2.count}`);
+        console.log('SQUAD player sample:', JSON.stringify((data2.results||[])[0]).slice(0,300));
+        raw = data2.results || [];
+      } catch(e) { console.log('SQUAD t2 error:', e.message); }
     }
+
+    // Tentativa 3: /api/players/?current_team={id}
+    if (!raw.length) {
+      try {
+        const resp3 = await fetch(`https://sports.bzzoiro.com/api/players/?current_team=${id}&limit=100`, {
+          headers: { Authorization: `Token ${BSD_TOKEN}` }
+        });
+        const data3 = await resp3.json();
+        console.log(`SQUAD /players/?current_team=${id} status=${resp3.status} count=${data3.count}`);
+        raw = data3.results || [];
+      } catch(e) { console.log('SQUAD t3 error:', e.message); }
+    }
+
+    console.log(`SQUAD final: ${raw.length} jogadores para time ${id}`);
 
     const players = raw.map(p => ({
       id: p.id,
       name: p.name || p.display_name || p.full_name || '—',
-      position: p.position || p.role || p.pos || '—',
+      position: p.position || p.role || '—',
       photo: `https://scoutpro-backend-9q23.onrender.com/img/player/${p.id}`,
-      jersey_number: p.jersey_number || p.shirt_number || ''
+      jersey_number: p.jersey_number || ''
     }));
 
     res.json({ players });
   } catch (e) {
-    console.log('SQUAD error:', e.message);
+    console.log('SQUAD fatal error:', e.message);
     res.status(500).json({ error: e.message });
   }
 });
