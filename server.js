@@ -335,6 +335,19 @@ app.get('/api/polymarket', async (req, res) => {
 // ROTAS DE COMPATIBILIDADE (frontend original)
 // ─────────────────────────────────────────────
 
+// Todos os times paginados (para o frontend cachear e filtrar localmente)
+app.get('/api/teams-all', async (req, res) => {
+  try {
+    const page = req.query.page || 1;
+    const data = await fetch(`https://sports.bzzoiro.com/api/teams/?page=${page}`, {
+      headers: { Authorization: `Token ${BSD_TOKEN}` }
+    }).then(r => r.json());
+    res.json(data);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // Busca de time por nome → /api/teams?q=Flamengo
 app.get('/api/teams', async (req, res) => {
   try {
