@@ -408,18 +408,40 @@ app.get('/api/teams-all', async (req, res) => res.json({ results: [], next: null
 // Elenco do time → /api/squad/:id
 app.get('/api/squad/:id', async (req, res) => {
   try {
-    const data = await fetch(`https://sports.bzzoiro.com/api/teams/${req.params.id}/squad/`, {
-      headers: { Authorization: `Token ${BSD_TOKEN}` }
-    }).then(r => r.json());
-    const players = (data.results || data.players || data.squad || []).map(p => ({
+    const id = req.params.id;
+    const url = `https://sports.bzzoiro.com/api/teams/${id}/squad/`;
+    const resp = await fetch(url, { headers: { Authorization: `Token ${BSD_TOKEN}` } });
+    const data = await resp.json();
+
+    // Log para debug
+    console.log('SQUAD response status:', resp.status);
+    console.log('SQUAD keys:', Object.keys(data));
+    console.log('SQUAD sample:', JSON.stringify(data).slice(0, 500));
+
+    // BSD pode retornar players em diferentes formatos
+    let raw = data.results || data.players || data.squad || data.squad_list || [];
+
+    // Se veio vazio, tenta buscar jogadores pelo time via /api/players/?team=ID
+    if (!raw.length) {
+      console.log('Squad vazio, tentando /api/players/?team=', id);
+      const p2 = await fetch(`https://sports.bzzoiro.com/api/players/?team=${id}&limit=50`, {
+        headers: { Authorization: `Token ${BSD_TOKEN}` }
+      }).then(r => r.json());
+      console.log('Players by team:', JSON.stringify(p2).slice(0, 500));
+      raw = p2.results || p2.players || [];
+    }
+
+    const players = raw.map(p => ({
       id: p.id,
-      name: p.name || p.display_name || '—',
-      position: p.position || p.role || '—',
+      name: p.name || p.display_name || p.full_name || '—',
+      position: p.position || p.role || p.pos || '—',
       photo: `https://scoutpro-backend-9q23.onrender.com/img/player/${p.id}`,
-      jersey_number: p.jersey_number || ''
+      jersey_number: p.jersey_number || p.shirt_number || ''
     }));
+
     res.json({ players });
   } catch (e) {
+    console.log('SQUAD error:', e.message);
     res.status(500).json({ error: e.message });
   }
 });
