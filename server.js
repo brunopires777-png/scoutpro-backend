@@ -4,7 +4,7 @@ const fetch = (...args) => import('node-fetch').then(({ default: f }) => f(...ar
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const BSD_TOKEN = process.env.BSD_TOKEN || 'dddbf69d96a0efa0ffeb9f8d0c791528b61d1c1d';
+const BSD_TOKEN = process.env.BSD_TOKEN || 'SEU_TOKEN_AQUI';
 const BASE_URL = 'https://sports.bzzoiro.com/api/v2';
 
 app.use(cors());
@@ -288,6 +288,87 @@ app.get('/api/polymarket', async (req, res) => {
       limit: 50
     });
     res.json(data);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ─────────────────────────────────────────────
+// ROTAS DE COMPATIBILIDADE (frontend original)
+// ─────────────────────────────────────────────
+
+// Busca de time por nome → /api/teams?q=Flamengo
+app.get('/api/teams', async (req, res) => {
+  try {
+    const { q } = req.query;
+    if (!q) return res.status(400).json({ error: 'Parâmetro q obrigatório' });
+    const data = await bsd('/teams/', { name: q, limit: 20 });
+    const teams = (data.results || []).map(t => ({
+      id: t.id,
+      name: t.name,
+      logo: `https://scoutpro-backend-9q23.onrender.com/img/team/${t.id}`,
+      country: t.country || t.nationality || ''
+    }));
+    res.json({ teams });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Elenco do time → /api/squad/:id
+app.get('/api/squad/:id', async (req, res) => {
+  try {
+    const data = await bsd(`/teams/${req.params.id}/squad/`);
+    const players = (data.players || data.squad || data.results || []).map(p => ({
+      id: p.id,
+      name: p.name || p.display_name,
+      position: p.position || p.role,
+      photo: `https://scoutpro-backend-9q23.onrender.com/img/player/${p.id}`,
+      jersey_number: p.jersey_number
+    }));
+    res.json({ players });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Stats do jogador → /api/player/:id/stats?teamId=X  (formato que o scout original usa)
+app.get('/api/player/:id/stats', async (req, res) => {
+  try {
+    const { teamId } = req.query;
+    const playerId = req.params.id;
+
+    // Busca a temporada atual via carreira
+    let seasonId;
+    try {
+      const carreira = await bsd(`/players/${playerId}/career/`);
+      seasonId = carreira.seasons?.[0]?.season_id;
+    } catch (_) {}
+
+    const params = { limit: 15 };
+    if (seasonId) params.season_id = seasonId;
+    else params.date_from = `${new Date().getFullYear() - 1}-07-01`;
+
+    const data = await bsd(`/players/${playerId}/stats/`, params);
+    const raw = data.player_stats || data.results || [];
+
+    // Mapeia para o formato que o frontend scout espera
+    const jogos = raw.map(g => ({
+      opponent:  g.event?.away_team || g.event?.home_team || '—',
+      score:     g.event?.home_score != null ? `${g.event.home_score}-${g.event.away_score}` : '—',
+      result:    g.result || (g.event?.home_score != null ? (g.is_home ? (g.event.home_score > g.event.away_score ? 'W' : g.event.home_score < g.event.away_score ? 'L' : 'D') : (g.event.away_score > g.event.home_score ? 'W' : g.event.away_score < g.event.home_score ? 'L' : 'D')) : '—'),
+      comp:      g.event?.league_name || g.competition || '—',
+      chutes:    g.total_shots ?? g.shots ?? null,
+      chutes_gol:g.shots_on_target ?? null,
+      desarmes:  g.tackles ?? g.tackles_won ?? null,
+      ftc:       g.fouls_committed ?? null,
+      fts:       g.fouls_drawn ?? null,
+      amarelos:  g.yellow_cards ?? null,
+      vermelhos: g.red_cards ?? null,
+      defesas:   g.saves ?? null,
+    }));
+
+    res.json({ jogos, fromCache: false });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
