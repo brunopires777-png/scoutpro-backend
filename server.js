@@ -56,7 +56,10 @@ app.get('/api/status', (req, res) => {
 // ─────────────────────────────────────────────
 app.get('/api/leagues', async (req, res) => {
   try {
-    const data = await bsd('/leagues/', { is_active: true, limit: 100 });
+    // BSD v1 /api/leagues/ retorna todas as ligas ativas com current_season embutido
+    const data = await fetch('https://sports.bzzoiro.com/api/leagues/', {
+      headers: { Authorization: `Token ${BSD_TOKEN}` }
+    }).then(r => r.json());
     res.json(data);
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -65,7 +68,10 @@ app.get('/api/leagues', async (req, res) => {
 
 app.get('/api/leagues/:id/standings', async (req, res) => {
   try {
-    const data = await bsd(`/leagues/${req.params.id}/standings/`);
+    const data = await fetch(`https://sports.bzzoiro.com/api/leagues/${req.params.id}/standings/`, {
+      headers: { Authorization: `Token ${BSD_TOKEN}` }
+    }).then(r => r.json());
+    // normaliza: BSD retorna standings[].team e standings[].team_id
     res.json(data);
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -87,56 +93,39 @@ app.get('/api/leagues/:id/season', async (req, res) => {
 app.get('/api/jogos/hoje', async (req, res) => {
   try {
     const { league_id } = req.query;
-    const data = await bsd('/events/', {
-      date_from: today(),
-      date_to: today(),
-      league_id,
-      limit: 100
-    });
+    const t = today();
+    const url = `https://sports.bzzoiro.com/api/events/?date_from=${t}&date_to=${t}&tz=America/Sao_Paulo&limit=200${league_id ? `&league=${league_id}` : ''}`;
+    const data = await fetch(url, { headers: { Authorization: `Token ${BSD_TOKEN}` } }).then(r => r.json());
     res.json(data);
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 app.get('/api/jogos/amanha', async (req, res) => {
   try {
     const { league_id } = req.query;
-    const data = await bsd('/events/', {
-      date_from: dayOffset(1),
-      date_to: dayOffset(1),
-      league_id,
-      limit: 100
-    });
+    const t = dayOffset(1);
+    const url = `https://sports.bzzoiro.com/api/events/?date_from=${t}&date_to=${t}&tz=America/Sao_Paulo&limit=200${league_id ? `&league=${league_id}` : ''}`;
+    const data = await fetch(url, { headers: { Authorization: `Token ${BSD_TOKEN}` } }).then(r => r.json());
     res.json(data);
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 app.get('/api/jogos/semana', async (req, res) => {
   try {
     const { league_id } = req.query;
-    const data = await bsd('/events/', {
-      date_from: today(),
-      date_to: dayOffset(7),
-      league_id,
-      limit: 200
-    });
+    const url = `https://sports.bzzoiro.com/api/events/?date_from=${today()}&date_to=${dayOffset(7)}&tz=America/Sao_Paulo&limit=200${league_id ? `&league=${league_id}` : ''}`;
+    const data = await fetch(url, { headers: { Authorization: `Token ${BSD_TOKEN}` } }).then(r => r.json());
     res.json(data);
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 app.get('/api/jogos/ao-vivo', async (req, res) => {
   try {
     const { league_id } = req.query;
-    const data = await bsd('/events/live/', { league_id });
+    const url = `https://sports.bzzoiro.com/api/live/?tz=America/Sao_Paulo${league_id ? `&league=${league_id}` : ''}`;
+    const data = await fetch(url, { headers: { Authorization: `Token ${BSD_TOKEN}` } }).then(r => r.json());
     res.json(data);
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // Detalhes completos de um jogo
@@ -242,16 +231,14 @@ app.get('/api/jogos/:id/metadata', async (req, res) => {
 // ─────────────────────────────────────────────
 app.get('/api/predicoes', async (req, res) => {
   try {
-    const { league_id, date_from, date_to, min_confidence, recommended } = req.query;
-    const data = await bsd('/predictions/', {
-      status: 'upcoming',
-      league_id,
-      date_from: date_from || today(),
-      date_to: date_to || dayOffset(3),
-      min_confidence,
-      recommended,
-      limit: 100
-    });
+    const { league_id, date_from, date_to } = req.query;
+    const dfrom = date_from || today();
+    const dto   = date_to   || dayOffset(3);
+    const qs = new URLSearchParams({ date_from: dfrom, date_to: dto, limit: 100, tz: 'America/Sao_Paulo' });
+    if (league_id) qs.set('league', league_id);
+    const data = await fetch(`https://sports.bzzoiro.com/api/predictions/?${qs}`, {
+      headers: { Authorization: `Token ${BSD_TOKEN}` }
+    }).then(r => r.json());
     res.json(data);
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -264,14 +251,48 @@ app.get('/api/predicoes', async (req, res) => {
 app.get('/api/value-bets', async (req, res) => {
   try {
     const { market = '1x2', league_id } = req.query;
-    const data = await bsd('/odds/best/', {
-      market,
-      league_id,
-      date_from: today(),
-      date_to: dayOffset(7),
-      limit: 100
+    // BSD: value bets vêm do endpoint /api/predictions/ — filtra por confidence alta
+    // e monta cards com odds embutidos nos eventos
+    const qs = new URLSearchParams({
+      date_from: today(), date_to: dayOffset(7),
+      limit: 100, tz: 'America/Sao_Paulo'
     });
-    res.json(data);
+    if (league_id) qs.set('league', league_id);
+    const data = await fetch(`https://sports.bzzoiro.com/api/predictions/?${qs}`, {
+      headers: { Authorization: `Token ${BSD_TOKEN}` }
+    }).then(r => r.json());
+
+    // Transforma predições em value bets (confiança >= 60%)
+    const results = (data.results || [])
+      .filter(p => {
+        const m = p.markets || p.predictions || {};
+        const res = m.match_result || {};
+        return Math.max(res.prob_home||0, res.prob_draw||0, res.prob_away||0) >= 60;
+      })
+      .map(p => {
+        const ev = p.event || {};
+        const m  = p.markets || p.predictions || {};
+        const mr = m.match_result || {};
+        const maxProb = Math.max(mr.prob_home||0, mr.prob_draw||0, mr.prob_away||0);
+        const favOutcome = mr.prob_home >= mr.prob_away && mr.prob_home >= mr.prob_draw ? 'Casa'
+          : mr.prob_away >= mr.prob_home && mr.prob_away >= mr.prob_draw ? 'Fora' : 'Empate';
+        const oddsMap = { 'Casa': ev.odds_home, 'Fora': ev.odds_away, 'Empate': ev.odds_draw };
+        return {
+          home_team:  ev.home_team || '—',
+          away_team:  ev.away_team || '—',
+          league_id:  ev.league?.id,
+          event_date: ev.event_date,
+          confidence: Math.round(maxProb),
+          market,
+          best_odds: [{
+            outcome_name:  favOutcome,
+            decimal_odds:  oddsMap[favOutcome] || null,
+            bookmaker_name:'Consenso',
+            edge_pct: null
+          }]
+        };
+      });
+    res.json({ results });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -302,12 +323,16 @@ app.get('/api/teams', async (req, res) => {
   try {
     const { q } = req.query;
     if (!q) return res.status(400).json({ error: 'Parâmetro q obrigatório' });
-    const data = await bsd('/teams/', { name: q, limit: 20 });
+    // BSD v1 usa ?name= para busca de times
+    const url = `https://sports.bzzoiro.com/api/teams/?name=${encodeURIComponent(q)}&limit=20`;
+    const data = await fetch(url, {
+      headers: { Authorization: `Token ${BSD_TOKEN}` }
+    }).then(r => r.json());
     const teams = (data.results || []).map(t => ({
       id: t.id,
       name: t.name,
       logo: `https://scoutpro-backend-9q23.onrender.com/img/team/${t.id}`,
-      country: t.country || t.nationality || ''
+      country: t.country || ''
     }));
     res.json({ teams });
   } catch (e) {
@@ -318,13 +343,15 @@ app.get('/api/teams', async (req, res) => {
 // Elenco do time → /api/squad/:id
 app.get('/api/squad/:id', async (req, res) => {
   try {
-    const data = await bsd(`/teams/${req.params.id}/squad/`);
-    const players = (data.players || data.squad || data.results || []).map(p => ({
+    const data = await fetch(`https://sports.bzzoiro.com/api/teams/${req.params.id}/squad/`, {
+      headers: { Authorization: `Token ${BSD_TOKEN}` }
+    }).then(r => r.json());
+    const players = (data.results || data.players || data.squad || []).map(p => ({
       id: p.id,
-      name: p.name || p.display_name,
-      position: p.position || p.role,
+      name: p.name || p.display_name || '—',
+      position: p.position || p.role || '—',
       photo: `https://scoutpro-backend-9q23.onrender.com/img/player/${p.id}`,
-      jersey_number: p.jersey_number
+      jersey_number: p.jersey_number || ''
     }));
     res.json({ players });
   } catch (e) {
@@ -338,35 +365,84 @@ app.get('/api/player/:id/stats', async (req, res) => {
     const { teamId } = req.query;
     const playerId = req.params.id;
 
-    // Busca a temporada atual via carreira
-    let seasonId;
+    // Busca o season_id atual via /api/player-stats/ filtrado por jogador
+    // A BSD v1 usa /api/player-stats/?player=ID&season=ID
+    // Primeiro buscamos as ligas para pegar os current_season ids
+    let seasonIds = [];
     try {
-      const carreira = await bsd(`/players/${playerId}/career/`);
-      seasonId = carreira.seasons?.[0]?.season_id;
+      const ligas = await fetch(`https://sports.bzzoiro.com/api/leagues/`, {
+        headers: { Authorization: `Token ${BSD_TOKEN}` }
+      }).then(r => r.json());
+      seasonIds = (ligas.results || [])
+        .map(l => l.current_season?.id)
+        .filter(Boolean);
     } catch (_) {}
 
-    const params = { limit: 15 };
-    if (seasonId) params.season_id = seasonId;
-    else params.date_from = `${new Date().getFullYear() - 1}-07-01`;
+    // Tenta buscar stats com o season mais recente (tenta os primeiros 3)
+    let raw = [];
+    const seasonsToTry = seasonIds.slice(0, 5);
 
-    const data = await bsd(`/players/${playerId}/stats/`, params);
-    const raw = data.player_stats || data.results || [];
+    for (const sid of seasonsToTry) {
+      try {
+        const url = `https://sports.bzzoiro.com/api/player-stats/?player=${playerId}&season=${sid}&limit=20`;
+        const data = await fetch(url, {
+          headers: { Authorization: `Token ${BSD_TOKEN}` }
+        }).then(r => r.json());
+        const items = data.results || [];
+        if (items.length > 0) { raw = items; break; }
+      } catch (_) {}
+    }
+
+    // Se não achou em nenhuma season, tenta sem filtro de season mas com date_from
+    if (!raw.length) {
+      try {
+        const anoAtual = new Date().getFullYear();
+        const url = `https://sports.bzzoiro.com/api/player-stats/?player=${playerId}&date_from=${anoAtual - 1}-07-01&limit=15&tz=America/Sao_Paulo`;
+        const data = await fetch(url, {
+          headers: { Authorization: `Token ${BSD_TOKEN}` }
+        }).then(r => r.json());
+        raw = data.results || [];
+      } catch (_) {}
+    }
+
+    // Ordena por data mais recente
+    raw.sort((a, b) => new Date(b.event?.event_date || 0) - new Date(a.event?.event_date || 0));
 
     // Mapeia para o formato que o frontend scout espera
-    const jogos = raw.map(g => ({
-      opponent:  g.event?.away_team || g.event?.home_team || '—',
-      score:     g.event?.home_score != null ? `${g.event.home_score}-${g.event.away_score}` : '—',
-      result:    g.result || (g.event?.home_score != null ? (g.is_home ? (g.event.home_score > g.event.away_score ? 'W' : g.event.home_score < g.event.away_score ? 'L' : 'D') : (g.event.away_score > g.event.home_score ? 'W' : g.event.away_score < g.event.home_score ? 'L' : 'D')) : '—'),
-      comp:      g.event?.league_name || g.competition || '—',
-      chutes:    g.total_shots ?? g.shots ?? null,
-      chutes_gol:g.shots_on_target ?? null,
-      desarmes:  g.tackles ?? g.tackles_won ?? null,
-      ftc:       g.fouls_committed ?? null,
-      fts:       g.fouls_drawn ?? null,
-      amarelos:  g.yellow_cards ?? null,
-      vermelhos: g.red_cards ?? null,
-      defesas:   g.saves ?? null,
-    }));
+    const jogos = raw.slice(0, 15).map(g => {
+      const ev = g.event || {};
+      const isHome = g.team_id === (ev.home_team_obj?.id || ev.home_team_id);
+      const myScore = isHome ? ev.home_score : ev.away_score;
+      const oppScore = isHome ? ev.away_score : ev.home_score;
+      const opponent = isHome ? ev.away_team : ev.home_team;
+      let result = '—';
+      if (myScore != null && oppScore != null) {
+        result = myScore > oppScore ? 'W' : myScore < oppScore ? 'L' : 'D';
+      }
+      const score = (ev.home_score != null && ev.away_score != null)
+        ? `${ev.home_score}-${ev.away_score}`
+        : '—';
+      const data_jogo = ev.event_date
+        ? new Date(ev.event_date).toLocaleDateString('pt-BR', { day:'2-digit', month:'2-digit', timeZone:'America/Sao_Paulo' })
+        : '—';
+
+      return {
+        opponent:   opponent || '—',
+        score,
+        result,
+        comp:       ev.league?.name || ev.league_name || '—',
+        data:       data_jogo,
+        // stats — campos exatos da BSD v1
+        chutes:     g.total_shots ?? null,
+        chutes_gol: g.shots_on_target ?? null,
+        desarmes:   g.tackles ?? null,
+        ftc:        g.fouls_committed ?? null,
+        fts:        g.fouls_drawn ?? null,
+        amarelos:   g.yellow_cards ?? null,
+        vermelhos:  g.red_cards ?? null,
+        defesas:    g.saves ?? null,
+      };
+    });
 
     res.json({ jogos, fromCache: false });
   } catch (e) {
