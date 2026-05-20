@@ -335,52 +335,75 @@ app.get('/api/polymarket', async (req, res) => {
 // ROTAS DE COMPATIBILIDADE (frontend original)
 // ─────────────────────────────────────────────
 
-// Todos os times paginados (para o frontend cachear e filtrar localmente)
-app.get('/api/teams-all', async (req, res) => {
-  try {
-    const page = req.query.page || 1;
-    const data = await fetch(`https://sports.bzzoiro.com/api/teams/?page=${page}`, {
-      headers: { Authorization: `Token ${BSD_TOKEN}` }
-    }).then(r => r.json());
-    res.json(data);
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
-});
-
-// Busca de time por nome → /api/teams?q=Flamengo
+// Busca times pelo nome — usa /api/players/ para encontrar o time pelo nome do clube
+// A BSD não tem endpoint de busca de times por nome diretamente
 app.get('/api/teams', async (req, res) => {
   try {
     const { q } = req.query;
     if (!q) return res.status(400).json({ error: 'Parâmetro q obrigatório' });
-    // BSD v1: busca times por nome — tenta page by page e filtra localmente
-    // Busca até 500 resultados e filtra pelo nome digitado
-    const allTeams = [];
-    for (let page = 1; page <= 5; page++) {
-      const url = `https://sports.bzzoiro.com/api/teams/?page=${page}&limit=100`;
-      const data = await fetch(url, {
+
+    const norm = s => (s||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'');
+    const term = norm(q);
+    const seen = new Map();
+
+    // Busca jogadores com esse nome de time (team_name contendo o termo)
+    // A BSD retorna jogadores com seu time atual — extraímos os times únicos
+    const playersUrl = `https://sports.bzzoiro.com/api/players/?limit=100`;
+    const pData = await fetch(playersUrl, {
+      headers: { Authorization: `Token ${BSD_TOKEN}` }
+    }).then(r => r.json());
+
+    // Busca nos eventos recentes — teams aparecem em home_team/away_team
+    const evUrl = `https://sports.bzzoiro.com/api/events/?date_from=${
+      new Date(Date.now()-30*86400000).toISOString().slice(0,10)
+    }&date_to=${
+      new Date(Date.now()+7*86400000).toISOString().slice(0,10)
+    }&limit=200`;
+    const evData = await fetch(evUrl, {
+      headers: { Authorization: `Token ${BSD_TOKEN}` }
+    }).then(r => r.json());
+
+    (evData.results || []).forEach(ev => {
+      if(norm(ev.home_team).includes(term) && ev.home_team_id && !seen.has(ev.home_team_id)) {
+        seen.set(ev.home_team_id, { id: ev.home_team_id, name: ev.home_team, country: '' });
+      }
+      if(norm(ev.away_team).includes(term) && ev.away_team_id && !seen.has(ev.away_team_id)) {
+        seen.set(ev.away_team_id, { id: ev.away_team_id, name: ev.away_team, country: '' });
+      }
+    });
+
+    // Se ainda não achou, tenta via standings das ligas principais
+    if(seen.size === 0) {
+      const leaguesData = await fetch('https://sports.bzzoiro.com/api/leagues/', {
         headers: { Authorization: `Token ${BSD_TOKEN}` }
       }).then(r => r.json());
-      const items = data.results || [];
-      allTeams.push(...items);
-      if (!data.next) break;
+      const leagueIds = (leaguesData.results||[]).map(l=>l.id).slice(0,15);
+      for(const lid of leagueIds) {
+        try {
+          const std = await fetch(`https://sports.bzzoiro.com/api/leagues/${lid}/standings/`, {
+            headers: { Authorization: `Token ${BSD_TOKEN}` }
+          }).then(r => r.json());
+          (std.standings||[]).forEach(s => {
+            const tname = s.team_name||s.team||'';
+            const tid = s.team_id||s.id;
+            if(norm(tname).includes(term) && tid && !seen.has(tid)) {
+              seen.set(tid, { id: tid, name: tname, country: '' });
+            }
+          });
+          if(seen.size >= 5) break;
+        } catch(_) {}
+      }
     }
-    const term = q.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
-    const filtered = allTeams.filter(t => {
-      const name = (t.name||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
-      return name.includes(term);
-    }).slice(0, 15);
-    const teams = filtered.map(t => ({
-      id: t.id,
-      name: t.name,
-      logo: `https://scoutpro-backend-9q23.onrender.com/img/team/${t.id}`,
-      country: t.country || ''
-    }));
+
+    const teams = Array.from(seen.values()).slice(0,15);
     res.json({ teams });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
 });
+
+// teams-all não é mais necessário mas mantém para compatibilidade
+app.get('/api/teams-all', async (req, res) => res.json({ results: [], next: null }));
 
 // Elenco do time → /api/squad/:id
 app.get('/api/squad/:id', async (req, res) => {
