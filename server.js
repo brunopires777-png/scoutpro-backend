@@ -346,21 +346,24 @@ app.get('/api/teams', async (req, res) => {
     const term = norm(q);
     const seen = new Map();
 
-    // Busca todas as páginas de /api/teams/ (max 500 por página)
-    for (let page = 1; page <= 3; page++) {
-      const data = await fetch(`https://sports.bzzoiro.com/api/teams/?page=${page}&limit=500`, {
+    // Busca todas as páginas de /api/teams/ até achar ou acabar
+    // BSD tem ~500 times, 100 por página = ~5 páginas
+    let totalPages = 0;
+    for (let page = 1; page <= 10; page++) {
+      const data = await fetch(`https://sports.bzzoiro.com/api/teams/?page=${page}&limit=100`, {
         headers: { Authorization: `Token ${BSD_TOKEN}` }
       }).then(r => r.json());
       const items = data.results || [];
-      // Loga os primeiros 20 nomes para debug
-      if (page === 1) console.log('TEAMS page1 sample:', items.slice(0,20).map(t=>t.name+' ('+t.id+')').join(', '));
+      totalPages++;
       items.forEach(t => {
         if (norm(t.name).includes(term) && !seen.has(t.id)) {
           seen.set(t.id, { id: t.id, name: t.name, country: t.country || '' });
         }
       });
-      if (!data.next || seen.size >= 15) break;
+      if (!data.next) break; // acabou as páginas
+      if (seen.size >= 15) break; // já achou suficiente
     }
+    console.log(`TEAMS search "${q}": varreu ${totalPages} páginas, achou ${seen.size}`);
 
     // Fallback: busca nos eventos recentes se não achou nada
     if (seen.size === 0) {
