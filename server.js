@@ -404,7 +404,11 @@ app.get('/api/squad/:id', async (req, res) => {
       }).then(r => r.json());
       if ((r.results||[]).length > 0) {
         players = r.results.map(p => ({
-          id: p.id, name: p.name||'—', position: p.position||'—', jersey_number: p.jersey_number||''
+          id: p.id,
+          name: p.name||'—',
+          position: p.position||'—',
+          jersey_number: p.jersey_number||'',
+          photo: `https://sports.bzzoiro.com/img/player/${p.id}/`
         }));
         console.log(`SQUAD via players: ${players.length} jogadores`);
       }
@@ -443,7 +447,8 @@ app.get('/api/squad/:id', async (req, res) => {
                 id: pid,
                 name: ps.player?.name || ps.player?.display_name || '—',
                 position: ps.player?.position || '—',
-                jersey_number: ps.player?.jersey_number || ''
+                jersey_number: ps.player?.jersey_number || '',
+                photo: `https://sports.bzzoiro.com/img/player/${pid}/`
               });
             }
           }
@@ -519,29 +524,24 @@ app.get('/api/player/:id/stats', async (req, res) => {
     const jogos = raw.slice(0, 7).map(g => {
       const ev = g.event || {};
 
-      // Descobre se o jogador jogou em casa ou fora
-      // BSD pode retornar: g.team_id, g.player?.team_id, g.is_home, g.side
-      const playerTeamId = g.team_id || g.player?.team_id || g.player?.current_team_id;
-      const isHome = g.is_home !== undefined
-        ? g.is_home
-        : (playerTeamId && ev.home_team_id)
-          ? String(playerTeamId) === String(ev.home_team_id)
-          : null;
-
-      // Se isHome for null (não conseguimos determinar), usa o time que NÃO é o do jogador
+      // BSD confirma: g.player.team = nome do time do jogador (ex: "Flamengo")
+      // Adversário = o outro time do evento
+      const playerTeamName = g.player?.team || '';
       let opponent, myScore, oppScore;
-      if (isHome === true) {
+      if (playerTeamName && ev.home_team && playerTeamName === ev.home_team) {
+        // Jogador é do time da casa
         opponent = ev.away_team;
         myScore  = ev.home_score;
         oppScore = ev.away_score;
-      } else if (isHome === false) {
+      } else if (playerTeamName && ev.away_team && playerTeamName === ev.away_team) {
+        // Jogador é do time visitante
         opponent = ev.home_team;
         myScore  = ev.away_score;
         oppScore = ev.home_score;
       } else {
-        // fallback: pega o time que aparece diferente do time buscado
-        const teamId = String(playerTeamId || '');
-        if (teamId && String(ev.home_team_id) === teamId) {
+        // Fallback por ID
+        const playerTeamId = g.team_id || g.player?.team_id;
+        if (playerTeamId && String(playerTeamId) === String(ev.home_team_id)) {
           opponent = ev.away_team;
           myScore  = ev.home_score;
           oppScore = ev.away_score;
