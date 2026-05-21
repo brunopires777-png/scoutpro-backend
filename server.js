@@ -524,24 +524,21 @@ app.get('/api/player/:id/stats', async (req, res) => {
     const jogos = raw.slice(0, 7).map(g => {
       const ev = g.event || {};
 
-      // BSD confirma: g.player.team = nome do time do jogador (ex: "Flamengo")
-      // Adversário = o outro time do evento
-      const playerTeamName = g.player?.team || '';
+      // Usa o teamId passado na query para saber qual lado é o jogador
+      // teamId = ID do time selecionado pelo usuário no scout
       let opponent, myScore, oppScore;
-      if (playerTeamName && ev.home_team && playerTeamName === ev.home_team) {
-        // Jogador é do time da casa
+      if (String(ev.home_team_id) === String(teamId)) {
         opponent = ev.away_team;
         myScore  = ev.home_score;
         oppScore = ev.away_score;
-      } else if (playerTeamName && ev.away_team && playerTeamName === ev.away_team) {
-        // Jogador é do time visitante
+      } else if (String(ev.away_team_id) === String(teamId)) {
         opponent = ev.home_team;
         myScore  = ev.away_score;
         oppScore = ev.home_score;
       } else {
-        // Fallback por ID
-        const playerTeamId = g.team_id || g.player?.team_id;
-        if (playerTeamId && String(playerTeamId) === String(ev.home_team_id)) {
+        // Fallback: usa player.team para comparar
+        const playerTeamName = g.player?.team || '';
+        if (playerTeamName === ev.home_team) {
           opponent = ev.away_team;
           myScore  = ev.home_score;
           oppScore = ev.away_score;
@@ -569,7 +566,7 @@ app.get('/api/player/:id/stats', async (req, res) => {
         opponent:   opponent || '—',
         score,
         result,
-        comp:       ev.league?.name || ev.league_name || g.competition || '—',
+        comp:       ev.league_name || ev.league?.name || g.competition || '—',
         data:       data_jogo,
         chutes:     g.total_shots     ?? g.shots         ?? null,
         chutes_gol: g.shots_on_target ?? g.shots_on_goal  ?? null,
