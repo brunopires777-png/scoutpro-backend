@@ -4,7 +4,7 @@ const fetch = (...args) => import('node-fetch').then(({ default: f }) => f(...ar
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const BSD_TOKEN = process.env.BSD_TOKEN || 'AIzaSyBFi-f4oNMJDhxE6FVwgo-339IeOf5eIak'; // Usando sua chave atualizada
+const BSD_TOKEN = process.env.BSD_TOKEN || 'dddbf69d96a0efa0ffeb9f8d0c791528b61d1c1d'; // Usando sua chave atualizada
 const BASE_URL = 'https://sports.bzzoiro.com/api/v2';
 
 app.use(cors());
