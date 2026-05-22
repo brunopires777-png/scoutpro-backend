@@ -561,21 +561,35 @@ app.get('/api/player/:id/stats', async (req, res) => {
         ? new Date(ev.event_date).toLocaleDateString('pt-BR', { day:'2-digit', month:'2-digit', timeZone:'America/Sao_Paulo' })
         : '—';
 
-      // Campos BSD v1 — tenta todos os nomes possíveis
+      // Campos BSD v1 — tenta todos os nomes possíveis no raiz E em subobjetos aninhados
+      // A BSD pode retornar stats em g.tackles OU em g.stats.tackles, g.statistics.tackles etc.
+      const _s = g.stats || g.statistics || g.player_stats || {};
+      const pick = (...keys) => {
+        for (const k of keys) {
+          for (const src of [g, _s]) {
+            const v = src?.[k];
+            if (v !== null && v !== undefined && v !== '' && !isNaN(Number(v))) return Number(v);
+          }
+        }
+        return null;
+      };
+
       return {
         opponent:   opponent || '—',
         score,
         result,
         comp:       ev.league_name || ev.league?.name || g.competition || '—',
         data:       data_jogo,
-        chutes:     g.total_shots     ?? g.shots         ?? null,
-        chutes_gol: g.shots_on_target ?? g.shots_on_goal  ?? null,
-        desarmes:   g.tackles         ?? g.tackles_won    ?? g.duels_won ?? null,
-        ftc:        g.fouls_committed ?? g.fouls          ?? null,
-        fts:        g.fouls_drawn     ?? g.was_fouled     ?? null,
-        amarelos:   g.yellow_cards    ?? g.yellow         ?? null,
-        vermelhos:  g.red_cards       ?? g.red            ?? null,
-        defesas:    g.saves           ?? g.goalkeeper_saves ?? null,
+        chutes:     pick('total_shots','shots','shots_total','shot_total','attemptedShots','attempts'),
+        chutes_gol: pick('shots_on_target','shots_on_goal','shot_on_target','on_target','shotsOnTarget'),
+        desarmes:   pick('tackles','tackles_total','total_tackles','tackles_won','tackle_won',
+                         'duels_won','duel_won','duels_ground_won','ground_duels_won',
+                         'interceptions','interceptions_total','defensive_actions'),
+        ftc:        pick('fouls_committed','fouls','foul_committed','total_fouls','foulsCommitted','fouls_made'),
+        fts:        pick('fouls_drawn','was_fouled','foul_drawn','fouled','fouls_suffered','foulsDrawn'),
+        amarelos:   pick('yellow_cards','yellow_card','yellowCards','yellow','cards_yellow','bookings'),
+        vermelhos:  pick('red_cards','red_card','redCards','red','cards_red','red_card_direct'),
+        defesas:    pick('saves','goalkeeper_saves','gk_saves','save','total_saves','goalSaved','saved'),
       };
     });
 
