@@ -661,23 +661,11 @@ app.get('/api/player/:id/stats', async (req, res) => {
         opponent:   opponent || '—',
         score,
         result,
-        comp: (()=>{
-          // BSD retorna nome da liga em vários lugares dependendo do endpoint
-          const ln = ev.league_name || ev.league?.name || ev.league?.short_name
-                  || g.league_name  || g.league?.name
-                  || (ev.league_id  ? null : null);  // id sem nome = sem info
-          if(ln && ln !== 'null' && ln !== 'undefined') return ln;
-          // Fallback: tenta buscar pelo slug
-          const slug = ev.league?.slug || ev.league_slug || g.league_slug;
-          if(slug) return slug.replace(/-/g,' ').replace(/\b\w/g,c=>c.toUpperCase());
-          return '—';
-        })(),
+        // comp removido a pedido
         data:       data_jogo,
-        chutes:     pick('goal_kicks','goal_kick','goalKicks','clearances','clearances_total','total_shots','shots','shots_total','attemptedShots','attempts'),
-        chutes_gol: pick('goals_conceded','goals_against','conceded','goal_conceded','shots_on_target','shots_on_goal','goal_kicks','on_target'),
-        desarmes:   pick('tackles','tackles_total','total_tackles','tackles_won','tackle_won',
-                         'duels_won','duel_won','duels_ground_won','ground_duels_won',
-                         'interceptions','interceptions_total','defensive_actions'),
+        chutes:     pick('total_shots','shots','shots_total','shot_total','attemptedShots','attempts'),
+        chutes_gol: null, // GS/TM removidos
+        desarmes:   pick('tackles_won','tackles','tackle_won','total_tackles','tackles_total'),
         ftc:        pick('fouls_committed','fouls','foul_committed','total_fouls','foulsCommitted','fouls_made'),
         fts:        pick('fouls_drawn','was_fouled','foul_drawn','fouled','fouls_suffered','foulsDrawn'),
         amarelos:   pick('yellow_cards','yellow_card','yellowCards','yellow','cards_yellow','bookings'),
@@ -687,6 +675,105 @@ app.get('/api/player/:id/stats', async (req, res) => {
     });
 
     res.json({ jogos, fromCache: false });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+
+// ─────────────────────────────────────────────
+// ÁRBITRO — stats por jogo (cartões, pênaltis)
+// Útil para apostadores: árbitros com histórico
+// de muitos cartões elevam Over de cartões
+// ─────────────────────────────────────────────
+app.get('/api/arbitros/:id/stats', async (req, res) => {
+  try {
+    const { season_id, league_id, limit = 20 } = req.query;
+    const matches = await bsd(`/referees/${req.params.id}/matches/`, {
+      season_id, league_id,
+      date_from: dayOffset(-180),
+      date_to: dayOffset(0),
+      limit
+    });
+    // Calcula médias de cartões
+    const items = matches.results || [];
+    let totalYellow = 0, totalRed = 0, totalPen = 0, count = 0;
+    items.forEach(m => {
+      if (m.stats) {
+        totalYellow += m.stats.yellow_cards || 0;
+        totalRed    += m.stats.red_cards    || 0;
+        totalPen    += m.stats.penalties    || 0;
+        count++;
+      }
+    });
+    res.json({
+      matches,
+      averages: count ? {
+        yellow_per_game: +(totalYellow / count).toFixed(1),
+        red_per_game:    +(totalRed    / count).toFixed(1),
+        penalties_per_game: +(totalPen / count).toFixed(1),
+        games_analyzed: count
+      } : null
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Árbitro por nome
+app.get('/api/arbitros/buscar', async (req, res) => {
+  try {
+    const { name, league_id } = req.query;
+    const data = await bsd('/referees/', { name, league_id, limit: 20 });
+    res.json(data);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ─────────────────────────────────────────────
+// SOCIAL — sentimento por time (Twitter/X)
+// Positivo/negativo/neutro — indica moral do time
+// ─────────────────────────────────────────────
+app.get('/api/social/time/:id', async (req, res) => {
+  try {
+    const data = await bsd(`/social/`, { team_id: req.params.id, limit: 5 });
+    res.json(data);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/social/jogo/:id', async (req, res) => {
+  try {
+    const data = await bsd(`/social/`, { event_id: req.params.id, limit: 10 });
+    res.json(data);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ─────────────────────────────────────────────
+// HEAD2HEAD — histórico de confrontos diretos
+// Busca eventos entre dois times nos últimos 2 anos
+// ─────────────────────────────────────────────
+app.get('/api/h2h', async (req, res) => {
+  try {
+    const { home_id, away_id } = req.query;
+    if (!home_id || !away_id) return res.status(400).json({ error: 'home_id e away_id obrigatórios' });
+    const dateFrom = new Date(Date.now() - 730 * 86400000).toISOString().slice(0,10);
+    const data = await fetch(
+      `https://sports.bzzoiro.com/api/events/?home_team_id=${home_id}&away_team_id=${away_id}&date_from=${dateFrom}&limit=10`,
+      { headers: { Authorization: `Token ${BSD_TOKEN}` } }
+    ).then(r => r.json());
+    // Tenta também confronto invertido
+    const data2 = await fetch(
+      `https://sports.bzzoiro.com/api/events/?home_team_id=${away_id}&away_team_id=${home_id}&date_from=${dateFrom}&limit=10`,
+      { headers: { Authorization: `Token ${BSD_TOKEN}` } }
+    ).then(r => r.json());
+    const all = [...(data.results||[]), ...(data2.results||[])]
+      .sort((a,b) => new Date(b.event_date) - new Date(a.event_date));
+    res.json({ results: all, count: all.length });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
