@@ -263,54 +263,74 @@ app.get('/api/predicoes', async (req, res) => {
 });
 
 // ─────────────────────────────────────────────
-// VALUE BETS — melhores odds do mercado
+// VALUE BETS — endpoint real da BSD v2
+// GET /api/v2/value-bets/ com edge, confidence e bookmaker reais
 // ─────────────────────────────────────────────
 app.get('/api/value-bets', async (req, res) => {
   try {
-    const { market = '1x2', league_id } = req.query;
-    // BSD: value bets vêm do endpoint /api/predictions/ — filtra por confidence alta
-    // e monta cards com odds embutidos nos eventos
-    const qs = new URLSearchParams({
-      date_from: today(), date_to: dayOffset(7),
-      limit: 100, tz: 'America/Sao_Paulo'
-    });
-    if (league_id) qs.set('league', league_id);
-    const data = await fetch(`https://sports.bzzoiro.com/api/predictions/?${qs}`, {
-      headers: { Authorization: `Token ${BSD_TOKEN}` }
-    }).then(r => r.json());
+    const { market, league_id, min_conf = 70, limit = 50 } = req.query;
 
-    // Transforma predições em value bets (confiança >= 60%)
-    const results = (data.results || [])
-      .filter(p => {
-        const m = p.markets || p.predictions || {};
-        const res = m.match_result || {};
-        return Math.max(res.prob_home||0, res.prob_draw||0, res.prob_away||0) >= 60;
+    const qs = new URLSearchParams({ limit });
+    if (market)    qs.set('market',    market);
+    if (league_id) qs.set('league_id', league_id);
+
+    // Endpoint real da BSD v2
+    const data = await fetch(
+      `https://sports.bzzoiro.com/api/v2/value-bets/?${qs}`,
+      { headers: { Authorization: `Token ${BSD_TOKEN}` } }
+    ).then(r => r.json());
+
+    const raw = data.results || data.value_bets || data.bets || [];
+
+    // Se vier vazio, tenta rota v1 como fallback
+    let results = raw;
+    if (!results.length) {
+      const fallback = await fetch(
+        `https://sports.bzzoiro.com/api/value-bets/?limit=50`,
+        { headers: { Authorization: `Token ${BSD_TOKEN}` } }
+      ).then(r => r.json()).catch(() => ({}));
+      results = fallback.results || fallback.value_bets || fallback.bets || [];
+    }
+
+    // Normaliza para o formato que o frontend espera
+    const normalized = results
+      .filter(vb => {
+        const conf = vb.confidence ?? vb.conf ?? vb.model_confidence ?? 0;
+        return conf >= Number(min_conf);
       })
-      .map(p => {
-        const ev = p.event || {};
-        const m  = p.markets || p.predictions || {};
-        const mr = m.match_result || {};
-        const maxProb = Math.max(mr.prob_home||0, mr.prob_draw||0, mr.prob_away||0);
-        const favOutcome = mr.prob_home >= mr.prob_away && mr.prob_home >= mr.prob_draw ? 'Casa'
-          : mr.prob_away >= mr.prob_home && mr.prob_away >= mr.prob_draw ? 'Fora' : 'Empate';
-        const oddsMap = { 'Casa': ev.odds_home, 'Fora': ev.odds_away, 'Empate': ev.odds_draw };
+      .map(vb => {
+        const ev  = vb.event || vb.match || {};
+        const conf = vb.confidence ?? vb.conf ?? vb.model_confidence ?? 0;
+        const edge = vb.edge_pct   ?? vb.edge ?? vb.value_pct ?? null;
+        // market/outcome
+        const market_name = vb.market || vb.market_key || vb.bet_type || '1x2';
+        const outcome = vb.outcome  || vb.pick || vb.outcome_name || vb.bet || '—';
+        const odds    = vb.odd      || vb.decimal_odds || vb.odds || null;
+        const bookmaker = vb.bookmaker || vb.bookmaker_name || vb.bookmaker_slug || 'Mercado';
+        const fair_odd  = vb.fair_odd  || null;
+
         return {
-          home_team:  ev.home_team || '—',
-          away_team:  ev.away_team || '—',
-          league_id:  ev.league?.id,
-          event_date: ev.event_date,
-          confidence: Math.round(maxProb),
-          market,
+          home_team:   ev.home_team  || vb.home_team  || '—',
+          away_team:   ev.away_team  || vb.away_team  || '—',
+          league_name: ev.league_name || vb.league_name || '—',
+          league_id:   ev.league_id  || vb.league_id  || null,
+          event_date:  ev.event_date  || vb.event_date || null,
+          confidence:  Math.round(conf),
+          market:      market_name,
           best_odds: [{
-            outcome_name:  favOutcome,
-            decimal_odds:  oddsMap[favOutcome] || null,
-            bookmaker_name:'Consenso',
-            edge_pct: null
+            outcome_name:   outcome,
+            decimal_odds:   odds ? Number(odds) : null,
+            bookmaker_name: bookmaker,
+            edge_pct:       edge,
+            fair_odd:       fair_odd
           }]
         };
       });
-    res.json({ results });
+
+    console.log(`[value-bets] raw: ${raw.length}, normalized: ${normalized.length}`);
+    res.json({ results: normalized, total: normalized.length });
   } catch (e) {
+    console.error('[value-bets] erro:', e.message);
     res.status(500).json({ error: e.message });
   }
 });
