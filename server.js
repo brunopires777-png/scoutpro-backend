@@ -274,23 +274,63 @@ app.get('/api/value-bets', async (req, res) => {
     if (market)    qs.set('market',    market);
     if (league_id) qs.set('league_id', league_id);
 
-    // Endpoint real da BSD v2
-    const data = await fetch(
-      `https://sports.bzzoiro.com/api/v2/value-bets/?${qs}`,
-      { headers: { Authorization: `Token ${BSD_TOKEN}` } }
-    ).then(r => r.json());
+    // Tenta endpoint v2 primeiro
+    let raw = [];
+    try {
+      const r2 = await fetch(
+        `https://sports.bzzoiro.com/api/v2/value-bets/?${qs}`,
+        { headers: { Authorization: `Token ${BSD_TOKEN}` } }
+      );
+      const d2 = await r2.json();
+      raw = d2.results || d2.value_bets || d2.bets || d2.data || [];
+      console.log('[value-bets] v2 response keys:', Object.keys(d2));
+      console.log('[value-bets] v2 raw count:', raw.length);
+      if (raw.length > 0) console.log('[value-bets] v2 first item keys:', Object.keys(raw[0]));
+    } catch(e2) {
+      console.log('[value-bets] v2 falhou:', e2.message);
+    }
 
-    const raw = data.results || data.value_bets || data.bets || [];
-
-    // Se vier vazio, tenta rota v1 como fallback
-    let results = raw;
-    if (!results.length) {
-      const fallback = await fetch(
-        `https://sports.bzzoiro.com/api/value-bets/?limit=50`,
+    // Fallback: predictions com confiança alta + odds reais
+    if (!raw.length) {
+      console.log('[value-bets] usando fallback via predictions...');
+      const qs2 = new URLSearchParams({
+        date_from: today(), date_to: dayOffset(7), limit: 100, tz: 'America/Sao_Paulo'
+      });
+      if (league_id) qs2.set('league', league_id);
+      const d1 = await fetch(
+        `https://sports.bzzoiro.com/api/predictions/?${qs2}`,
         { headers: { Authorization: `Token ${BSD_TOKEN}` } }
       ).then(r => r.json()).catch(() => ({}));
-      results = fallback.results || fallback.value_bets || fallback.bets || [];
+
+      raw = (d1.results || [])
+        .filter(p => {
+          const mr = (p.markets||p.predictions||{}).match_result || {};
+          return Math.max(mr.prob_home||0, mr.prob_draw||0, mr.prob_away||0) >= 55;
+        })
+        .map(p => {
+          const ev = p.event || {};
+          const mr = (p.markets||p.predictions||{}).match_result || {};
+          const ph=mr.prob_home||0, pd=mr.prob_draw||0, pa=mr.prob_away||0;
+          const maxP = Math.max(ph,pd,pa);
+          const outcome = ph>=pd&&ph>=pa?'home':pa>=ph&&pa>=pd?'away':'draw';
+          const outLabel = {home:'Casa',away:'Fora',draw:'Empate'}[outcome];
+          const odd = {home:ev.odds_home,away:ev.odds_away,draw:ev.odds_draw}[outcome];
+          const recs = p.recommendations || {};
+          return {
+            event: ev,
+            confidence: Math.round((p.model?.confidence||maxP/100)*100),
+            market: market||'1x2',
+            outcome: outLabel,
+            odd: odd||null,
+            bookmaker: 'Consenso BSD',
+            edge_pct: null,
+            fair_odd: null,
+          };
+        });
+      console.log('[value-bets] fallback predictions:', raw.length);
     }
+
+    let results = raw;
 
     // Normaliza para o formato que o frontend espera
     const normalized = results
