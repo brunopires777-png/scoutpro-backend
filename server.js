@@ -347,8 +347,8 @@ app.get('/api/value-bets', async (req, res) => {
     // Normaliza para o formato que o frontend espera
     const normalized = results
       .filter(vb => {
-        const conf = vb.confidence ?? vb.conf ?? vb.model_confidence ?? 0;
-        return conf >= Number(min_conf);
+        // Aceita qualquer resultado com pelo menos um campo reconhecível
+        return vb && (vb.confidence != null || vb.odd != null || vb.odds != null || vb.market != null);
       })
       .map(vb => {
         const ev  = vb.event || vb.match || {};
@@ -650,10 +650,10 @@ app.get('/api/player/:id/stats', async (req, res) => {
         opponent:   opponent || '—',
         score,
         result,
-        comp:       ev.league_name || ev.league?.name || g.competition || '—',
+        comp:       ev.league_name || ev.league?.name || ev.league?.slug || g.league || g.competition || '—',
         data:       data_jogo,
         chutes:     pick('goal_kicks','goal_kick','goalKicks','total_shots','shots','shots_total','shot_total','attemptedShots','attempts'),
-        chutes_gol: pick('shots_on_target','shots_on_goal','shot_on_target','on_target','shotsOnTarget'),
+        chutes_gol: pick('goal_kicks','goal_kick','goalKicks','shots_on_target','shots_on_goal','shot_on_target','on_target','shotsOnTarget'),
         desarmes:   pick('tackles','tackles_total','total_tackles','tackles_won','tackle_won',
                          'duels_won','duel_won','duels_ground_won','ground_duels_won',
                          'interceptions','interceptions_total','defensive_actions'),
