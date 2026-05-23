@@ -38,6 +38,18 @@ function dayOffset(n) {
   return d.toISOString().slice(0, 10);
 }
 
+
+// Debug: ver estrutura raw do endpoint v2 de value bets
+app.get('/api/debug/value-bets', async (req, res) => {
+  try {
+    const r = await fetch('https://sports.bzzoiro.com/api/v2/value-bets/?limit=3', {
+      headers: { Authorization: `Token ${BSD_TOKEN}` }
+    });
+    const txt = await r.text();
+    console.log('[debug/value-bets] status:', r.status, 'body:', txt.slice(0, 500));
+    res.json({ status: r.status, keys: Object.keys(JSON.parse(txt)||{}), sample: txt.slice(0,800) });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
 // ─────────────────────────────────────────────
 // STATUS / HEALTH
 // ─────────────────────────────────────────────
@@ -270,8 +282,8 @@ app.get('/api/value-bets', async (req, res) => {
   try {
     const { market, league_id, min_conf = 70, limit = 50 } = req.query;
 
-    const qs = new URLSearchParams({ limit });
-    if (market)    qs.set('market',    market);
+    const qs = new URLSearchParams({ limit: limit || 100 });
+    if (market && market !== '1x2') qs.set('market', market);
     if (league_id) qs.set('league_id', league_id);
 
     // Tenta endpoint v2 primeiro
@@ -640,7 +652,7 @@ app.get('/api/player/:id/stats', async (req, res) => {
         result,
         comp:       ev.league_name || ev.league?.name || g.competition || '—',
         data:       data_jogo,
-        chutes:     pick('total_shots','shots','shots_total','shot_total','attemptedShots','attempts'),
+        chutes:     pick('goal_kicks','goal_kick','goalKicks','total_shots','shots','shots_total','shot_total','attemptedShots','attempts'),
         chutes_gol: pick('shots_on_target','shots_on_goal','shot_on_target','on_target','shotsOnTarget'),
         desarmes:   pick('tackles','tackles_total','total_tackles','tackles_won','tackle_won',
                          'duels_won','duel_won','duels_ground_won','ground_duels_won',
