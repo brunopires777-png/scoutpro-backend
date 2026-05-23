@@ -586,10 +586,21 @@ app.get('/api/player/:id/stats', async (req, res) => {
     // Ordena por data mais recente
     raw.sort((a, b) => new Date(b.event?.event_date || 0) - new Date(a.event?.event_date || 0));
 
-    // DEBUG: loga o primeiro item para ver a estrutura real da BSD
+    // DEBUG: loga estrutura completa do evento para verificar league_name
     if (raw.length > 0) {
-      console.log('BSD player-stats sample keys:', Object.keys(raw[0]));
-      console.log('BSD player-stats sample:', JSON.stringify(raw[0]).slice(0, 800));
+      const sample = raw[0];
+      console.log('[player-stats] keys raiz:', Object.keys(sample));
+      const ev0 = sample.event || {};
+      console.log('[player-stats] event keys:', Object.keys(ev0));
+      console.log('[player-stats] league info:', JSON.stringify({
+        league_name: ev0.league_name,
+        league: ev0.league,
+        league_id: ev0.league_id,
+        league_slug: ev0.league_slug,
+      }));
+      const _s0 = sample.stats || sample.statistics || sample.player_stats || {};
+      console.log('[player-stats] stats keys:', Object.keys(_s0));
+      console.log('[player-stats] goal_kicks:', _s0.goal_kicks, sample.goal_kicks);
     }
 
     // Mapeia para o formato que o frontend scout espera
@@ -650,10 +661,20 @@ app.get('/api/player/:id/stats', async (req, res) => {
         opponent:   opponent || '—',
         score,
         result,
-        comp:       ev.league_name || ev.league?.name || ev.league?.slug || g.league || g.competition || '—',
+        comp: (()=>{
+          // BSD retorna nome da liga em vários lugares dependendo do endpoint
+          const ln = ev.league_name || ev.league?.name || ev.league?.short_name
+                  || g.league_name  || g.league?.name
+                  || (ev.league_id  ? null : null);  // id sem nome = sem info
+          if(ln && ln !== 'null' && ln !== 'undefined') return ln;
+          // Fallback: tenta buscar pelo slug
+          const slug = ev.league?.slug || ev.league_slug || g.league_slug;
+          if(slug) return slug.replace(/-/g,' ').replace(/\b\w/g,c=>c.toUpperCase());
+          return '—';
+        })(),
         data:       data_jogo,
-        chutes:     pick('goal_kicks','goal_kick','goalKicks','total_shots','shots','shots_total','shot_total','attemptedShots','attempts'),
-        chutes_gol: pick('goal_kicks','goal_kick','goalKicks','shots_on_target','shots_on_goal','shot_on_target','on_target','shotsOnTarget'),
+        chutes:     pick('goal_kicks','goal_kick','goalKicks','clearances','clearances_total','total_shots','shots','shots_total','attemptedShots','attempts'),
+        chutes_gol: pick('goals_conceded','goals_against','conceded','goal_conceded','shots_on_target','shots_on_goal','goal_kicks','on_target'),
         desarmes:   pick('tackles','tackles_total','total_tackles','tackles_won','tackle_won',
                          'duels_won','duel_won','duels_ground_won','ground_duels_won',
                          'interceptions','interceptions_total','defensive_actions'),
