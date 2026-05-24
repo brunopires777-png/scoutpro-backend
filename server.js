@@ -578,26 +578,37 @@ app.get('/api/player/:id/stats', async (req, res) => {
       return res.json({ jogos: [], fromCache: false });
     }
 
+    // Debug: ver o que a BSD retorna no primeiro item
+    if (raw.length > 0) {
+      const s = raw[0];
+      console.log('[player-stats] CAMPOS RAIZ:', Object.keys(s).join(', '));
+      console.log('[player-stats] team_id:', s.team_id, '| event.home_team_id:', s.event?.home_team_id, '| event.away_team_id:', s.event?.away_team_id);
+      console.log('[player-stats] teamId query:', teamId);
+    }
+
     // Ordena por data mais recente
     raw.sort((a, b) => new Date(b.event?.event_date || 0) - new Date(a.event?.event_date || 0));
 
     const jogos = raw.slice(0, 7).map(g => {
       const ev = g.event || {};
 
-      // Determina adversário e placar pelo lado do jogador
+      // Determina o lado do jogador — usa g.team_id (campo do item) como fonte primária
+      // depois teamId da query, depois nome do time como fallback
+      const playerTeamId = String(g.team_id || teamId || '');
+      const homeId       = String(ev.home_team_id || '');
+      const awayId       = String(ev.away_team_id || '');
+
       let opponent, myScore, oppScore;
-      if (String(ev.home_team_id) === String(teamId)) {
+      if (playerTeamId && homeId && playerTeamId === homeId) {
         opponent = ev.away_team;  myScore = ev.home_score; oppScore = ev.away_score;
-      } else if (String(ev.away_team_id) === String(teamId)) {
+      } else if (playerTeamId && awayId && playerTeamId === awayId) {
         opponent = ev.home_team;  myScore = ev.away_score; oppScore = ev.home_score;
-      } else if (g.team_id) {
-        if (String(g.team_id) === String(ev.home_team_id)) {
-          opponent = ev.away_team;  myScore = ev.home_score; oppScore = ev.away_score;
-        } else {
-          opponent = ev.home_team;  myScore = ev.away_score; oppScore = ev.home_score;
-        }
+      } else if (homeId && homeId === String(teamId)) {
+        opponent = ev.away_team;  myScore = ev.home_score; oppScore = ev.away_score;
+      } else if (awayId && awayId === String(teamId)) {
+        opponent = ev.home_team;  myScore = ev.away_score; oppScore = ev.home_score;
       } else {
-        // fallback: não tem teamId, mostra o jogo completo
+        // Último fallback: exibe jogo completo
         opponent = `${ev.home_team} × ${ev.away_team}`;
         myScore = null; oppScore = null;
       }
