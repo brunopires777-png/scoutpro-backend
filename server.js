@@ -162,7 +162,7 @@ app.get('/api/jogos/:id', async (req, res) => {
   try {
     const id = req.params.id;
     const [evento, stats, incidents, odds, lineups, playerStats, predicao] = await Promise.allSettled([
-      bsd(`/events/${id}/`),
+      bsd(`/events/${id}/`, { full: 'true' }),  // full=true traz lineups, shotmap, momentum
       bsd(`/events/${id}/stats/`),
       bsd(`/events/${id}/incidents/`),
       bsd(`/events/${id}/odds/`),
@@ -171,14 +171,33 @@ app.get('/api/jogos/:id', async (req, res) => {
       bsd(`/events/${id}/prediction/`)
     ]);
 
+    const evData = evento.status === 'fulfilled' ? evento.value : null;
+    const statsData = stats.status === 'fulfilled' ? stats.value : null;
+    const predData = predicao.status === 'fulfilled' ? predicao.value : null;
+
+    // Extrai xG de todas as fontes possíveis e normaliza no objeto evento
+    if (evData) {
+      const sh = statsData?.stats?.home || {};
+      const sa = statsData?.stats?.away || {};
+      // xG pode estar em: stats.home.xg, stats.home.xg.actual, evento.home_xg, predicao.markets.expected_goals
+      if (!evData.home_xg) {
+        evData.home_xg = sh?.xg?.actual ?? sh?.xg?.value ?? sh?.xg
+          ?? predData?.markets?.expected_goals?.home ?? null;
+      }
+      if (!evData.away_xg) {
+        evData.away_xg = sa?.xg?.actual ?? sa?.xg?.value ?? sa?.xg
+          ?? predData?.markets?.expected_goals?.away ?? null;
+      }
+    }
+
     res.json({
-      evento: evento.status === 'fulfilled' ? evento.value : null,
-      stats: stats.status === 'fulfilled' ? stats.value : null,
+      evento: evData,
+      stats: statsData,
       incidents: incidents.status === 'fulfilled' ? incidents.value : null,
       odds: odds.status === 'fulfilled' ? odds.value : null,
       lineups: lineups.status === 'fulfilled' ? lineups.value : null,
       playerStats: playerStats.status === 'fulfilled' ? playerStats.value : null,
-      predicao: predicao.status === 'fulfilled' ? predicao.value : null
+      predicao: predData
     });
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -538,79 +557,49 @@ app.get('/api/squad/:id', async (req, res) => {
 });
 
 // Stats do jogador → /api/player/:id/stats?teamId=X
-// Usa BSD v2: /players/{id}/stats/ que retorna uma lista de entradas por partida
-// Cada entrada tem os campos direto na raiz: total_shots, shots_on_target,
-// total_tackle, interception, yellow_card, red_card, saves, fouls_committed etc.
+// Usa BSD: /api/player-stats/?player=ID (endpoint que retorna evento aninhado)
+// Cada item: { event: {id, home_team, away_team, event_date, home_score, away_score, home_team_id, away_team_id},
+//              total_shots, shots_on_target, total_tackle, yellow_card, red_card, saves,
+//              fouls_committed, fouls_drawn, goals, goal_assist, accurate_pass, minutes_played, rating }
 app.get('/api/player/:id/stats', async (req, res) => {
   try {
     const { teamId } = req.query;
     const playerId = req.params.id;
 
-    // ── TENTATIVA 1: endpoint v2 /players/{id}/stats/ (retorna por partida) ──
-    let raw = [];
-    try {
-      const data = await bsd(`/players/${playerId}/stats/`, { limit: 20 });
-      raw = data.results || [];
-      console.log(`[player-stats v2] /players/${playerId}/stats/ → ${raw.length} registros`);
-    } catch (e) {
-      console.warn('[player-stats v2] falhou:', e.message);
-    }
+    // Endpoint correto: /api/player-stats/?player=ID retorna lista com evento aninhado
+    const data = await fetch(
+      `https://sports.bzzoiro.com/api/player-stats/?player=${playerId}&limit=20&tz=America/Sao_Paulo`,
+      { headers: { Authorization: `Token ${BSD_TOKEN}` } }
+    ).then(r => r.json());
 
-    // ── TENTATIVA 2: endpoint /events/{id}/player-stats/ via jogos recentes do time ──
-    if (!raw.length && teamId) {
-      try {
-        const jogosTime = await bsd('/events/', {
-          team: teamId,
-          date_to: today(),
-          limit: 10,
-          ordering: '-event_date'
-        });
-        for (const ev of (jogosTime.results || []).slice(0, 5)) {
-          const ps = await bsd(`/events/${ev.id}/player-stats/`);
-          const item = (ps.player_stats || ps.results || []).find(
-            p => String(p.player_id) === String(playerId)
-          );
-          if (item) {
-            raw.push({ ...item, _event: ev });
-          }
-        }
-        console.log(`[player-stats] via events → ${raw.length} registros`);
-      } catch (e) {
-        console.warn('[player-stats] via events falhou:', e.message);
-      }
-    }
+    let raw = data.results || [];
 
     if (!raw.length) {
       return res.json({ jogos: [], fromCache: false });
     }
 
-    // Log do primeiro item para diagnóstico
-    console.log('[player-stats] AMOSTRA RAIZ:', JSON.stringify(Object.keys(raw[0])));
-    console.log('[player-stats] AMOSTRA VALORES:', JSON.stringify(raw[0]));
-
     // Ordena por data mais recente
-    raw.sort((a, b) => {
-      const da = a.event?.event_date || a._event?.event_date || a.event_date || 0;
-      const db = b.event?.event_date || b._event?.event_date || b.event_date || 0;
-      return new Date(db) - new Date(da);
-    });
+    raw.sort((a, b) => new Date(b.event?.event_date || 0) - new Date(a.event?.event_date || 0));
 
     const jogos = raw.slice(0, 7).map(g => {
-      // Suporte a ambos formatos: evento aninhado em g.event ou g._event
-      const ev = g.event || g._event || {};
+      const ev = g.event || {};
 
+      // Determina adversário e placar pelo lado do jogador
       let opponent, myScore, oppScore;
       if (String(ev.home_team_id) === String(teamId)) {
         opponent = ev.away_team;  myScore = ev.home_score; oppScore = ev.away_score;
       } else if (String(ev.away_team_id) === String(teamId)) {
         opponent = ev.home_team;  myScore = ev.away_score; oppScore = ev.home_score;
-      } else {
-        const playerTeam = g.player?.team || g.team_name || '';
-        if (playerTeam === ev.home_team) {
+      } else if (g.team_id) {
+        if (String(g.team_id) === String(ev.home_team_id)) {
           opponent = ev.away_team;  myScore = ev.home_score; oppScore = ev.away_score;
         } else {
           opponent = ev.home_team;  myScore = ev.away_score; oppScore = ev.home_score;
         }
+      } else {
+        // fallback: não tem teamId, mostra o jogo completo
+        opponent = `${ev.home_team} × ${ev.away_team}`;
+        myScore = null; oppScore = null;
       }
 
       let result = '—';
@@ -621,43 +610,32 @@ app.get('/api/player/:id/stats', async (req, res) => {
       const score = (ev.home_score != null && ev.away_score != null)
         ? `${ev.home_score}-${ev.away_score}` : '—';
 
-      const data_jogo = (ev.event_date || g.event_date)
-        ? new Date(ev.event_date || g.event_date).toLocaleDateString('pt-BR',
+      const data_jogo = ev.event_date
+        ? new Date(ev.event_date).toLocaleDateString('pt-BR',
             { day:'2-digit', month:'2-digit', timeZone:'America/Sao_Paulo' })
         : '—';
 
-      // pick: procura o campo direto na raiz de g (formato BSD v2)
-      // Os campos v2 confirmados pela documentação:
-      //   total_shots, shots_on_target, total_tackle, interception,
-      //   yellow_card, red_card, saves, fouls_committed, minutes_played, goals, goal_assist
-      const pick = (...keys) => {
-        for (const k of keys) {
-          const v = g[k];
-          if (v !== null && v !== undefined && v !== '' && !isNaN(Number(v))) return Number(v);
-        }
-        return null;
-      };
+      // Campos BSD confirmados na documentação (raiz do item)
+      const n = (v) => (v !== null && v !== undefined && v !== '' && !isNaN(Number(v))) ? Number(v) : null;
 
       return {
-        opponent:   opponent || '—',
+        opponent:     opponent || '—',
         score,
         result,
-        data:       data_jogo,
-        // Nomes EXATOS da BSD v2 (confirmados no print da documentação)
-        chutes:     pick('total_shots', 'shots'),
-        chutes_gol: pick('shots_on_target', 'shots_on_goal'),
-        desarmes:   pick('total_tackle', 'interception'),   // ← campos EXATOS da v2
-        ftc:        pick('fouls_committed', 'fouls'),
-        fts:        pick('fouls_drawn', 'was_fouled'),
-        amarelos:   pick('yellow_card', 'yellow_cards'),
-        vermelhos:  pick('red_card', 'red_cards'),
-        defesas:    pick('saves'),
-        // Extras (disponíveis na v2, usados no veredito)
-        gols:       pick('goals'),
-        assistencias: pick('goal_assist'),
-        minutos:    pick('minutes_played'),
-        passes:     pick('accurate_pass', 'total_pass'),
-        rating:     pick('rating'),
+        data:         data_jogo,
+        chutes:       n(g.total_shots)   ?? n(g.shots),
+        chutes_gol:   n(g.shots_on_target) ?? n(g.shots_on_goal),
+        desarmes:     n(g.total_tackle),
+        ftc:          n(g.fouls_committed) ?? n(g.fouls),
+        fts:          n(g.fouls_drawn)   ?? n(g.was_fouled),
+        amarelos:     n(g.yellow_card)   ?? n(g.yellow_cards),
+        vermelhos:    n(g.red_card)      ?? n(g.red_cards),
+        defesas:      n(g.saves),
+        gols:         n(g.goals),
+        assistencias: n(g.goal_assist),
+        minutos:      n(g.minutes_played),
+        passes:       n(g.accurate_pass) ?? n(g.total_pass),
+        rating:       n(g.rating),
       };
     });
 
@@ -676,32 +654,50 @@ app.get('/api/player/:id/stats', async (req, res) => {
 // ─────────────────────────────────────────────
 app.get('/api/arbitros/:id/stats', async (req, res) => {
   try {
-    const { season_id, league_id, limit = 20 } = req.query;
-    const matches = await bsd(`/referees/${req.params.id}/matches/`, {
-      season_id, league_id,
-      date_from: dayOffset(-180),
-      date_to: dayOffset(0),
-      limit
-    });
-    // Calcula médias de cartões
-    const items = matches.results || [];
-    let totalYellow = 0, totalRed = 0, totalPen = 0, count = 0;
-    items.forEach(m => {
-      if (m.stats) {
-        totalYellow += m.stats.yellow_cards || 0;
-        totalRed    += m.stats.red_cards    || 0;
-        totalPen    += m.stats.penalties    || 0;
-        count++;
-      }
-    });
+    const id = req.params.id;
+    // Busca dados agregados do árbitro (/referees/{id}/ retorna totais diretos)
+    // e histórico de partidas (/referees/{id}/matches/ retorna jogos com cartões)
+    const [detailRes, matchesRes] = await Promise.allSettled([
+      bsd(`/referees/${id}/`),
+      bsd(`/referees/${id}/matches/`, {
+        date_from: dayOffset(-180),
+        date_to: dayOffset(7),
+        limit: 20
+      })
+    ]);
+
+    const detail  = detailRes.status  === 'fulfilled' ? detailRes.value  : null;
+    const matches = matchesRes.status === 'fulfilled' ? matchesRes.value : null;
+    const items   = matches?.results || [];
+
+    // Os dados agregados já vêm no detalhe do árbitro
+    // Fallback: calcula das partidas se detalhe não tiver
+    let avgY = detail?.avg_yellow_per_match ?? null;
+    let avgR = detail?.avg_red_per_match ?? null;
+    let avgF = detail?.avg_fouls_per_match ?? null;
+    let totM = detail?.matches ?? items.length;
+
+    if (avgY === null && items.length) {
+      let tY=0, tR=0, c=0;
+      items.forEach(m => {
+        // BSD /referees/{id}/matches/ retorna campos direto na raiz do item
+        tY += m.yellow_cards ?? m.total_yellow_cards ?? 0;
+        tR += m.red_cards    ?? m.total_red_cards    ?? 0;
+        c++;
+      });
+      if (c) { avgY = +(tY/c).toFixed(2); avgR = +(tR/c).toFixed(2); totM = c; }
+    }
+
     res.json({
+      detail,
       matches,
-      averages: count ? {
-        yellow_per_game: +(totalYellow / count).toFixed(1),
-        red_per_game:    +(totalRed    / count).toFixed(1),
-        penalties_per_game: +(totalPen / count).toFixed(1),
-        games_analyzed: count
-      } : null
+      averages: {
+        yellow_per_game:     avgY ?? 0,
+        red_per_game:        avgR ?? 0,
+        fouls_per_game:      avgF ?? 0,
+        penalties_per_game:  detail?.avg_goals_per_match ?? 0,
+        games_analyzed:      totM
+      }
     });
   } catch (e) {
     res.status(500).json({ error: e.message });
