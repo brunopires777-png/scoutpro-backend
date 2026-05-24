@@ -664,7 +664,7 @@ app.get('/api/player/:id/stats', async (req, res) => {
         // comp removido a pedido
         data:       data_jogo,
         chutes:     pick('total_shots','shots','shots_total','shot_total','attemptedShots','attempts'),
-        chutes_gol: null, // GS/TM removidos
+        chutes_gol: pick('shots_on_target','shots_on_goal','shot_on_target','on_target','shotsOnTarget'),
         desarmes:   pick('tackles_won','tackles','tackle_won','total_tackles','tackles_total'),
         ftc:        pick('fouls_committed','fouls','foul_committed','total_fouls','foulsCommitted','fouls_made'),
         fts:        pick('fouls_drawn','was_fouled','foul_drawn','fouled','fouls_suffered','foulsDrawn'),
@@ -726,6 +726,59 @@ app.get('/api/arbitros/buscar', async (req, res) => {
     const { name, league_id } = req.query;
     const data = await bsd('/referees/', { name, league_id, limit: 20 });
     res.json(data);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ─────────────────────────────────────────────
+// ÁRBITROS DOS PRÓXIMOS JOGOS
+// Extrai árbitros escalados dos eventos futuros
+// ─────────────────────────────────────────────
+app.get('/api/arbitros/proximos', async (req, res) => {
+  try {
+    const { league_id } = req.query;
+    const qs = new URLSearchParams({
+      date_from: today(),
+      date_to: dayOffset(7),
+      limit: 100,
+      tz: 'America/Sao_Paulo'
+    });
+    if (league_id) qs.set('league', league_id);
+
+    const data = await fetch(
+      `https://sports.bzzoiro.com/api/events/?${qs}`,
+      { headers: { Authorization: `Token ${BSD_TOKEN}` } }
+    ).then(r => r.json());
+
+    // Extrai árbitros únicos com seus jogos
+    const refMap = new Map();
+    (data.results || []).forEach(ev => {
+      const ref = ev.referee || ev.referee_name;
+      const refId = ev.referee_id;
+      if (!ref && !refId) return;
+      const key = refId || ref;
+      if (!refMap.has(key)) {
+        refMap.set(key, {
+          id: refId || null,
+          name: ref || '—',
+          jogos: []
+        });
+      }
+      refMap.get(key).jogos.push({
+        id: ev.id,
+        home_team: ev.home_team,
+        away_team: ev.away_team,
+        event_date: ev.event_date,
+        league_name: ev.league?.name || ev.league_name || '—'
+      });
+    });
+
+    const arbitros = Array.from(refMap.values())
+      .filter(r => r.name && r.name !== '—')
+      .sort((a, b) => a.name.localeCompare(b.name));
+
+    res.json({ arbitros, total: arbitros.length });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
