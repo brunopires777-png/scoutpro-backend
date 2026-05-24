@@ -586,21 +586,19 @@ app.get('/api/player/:id/stats', async (req, res) => {
     // Ordena por data mais recente
     raw.sort((a, b) => new Date(b.event?.event_date || 0) - new Date(a.event?.event_date || 0));
 
-    // DEBUG: loga estrutura completa do evento para verificar league_name
+    // DEBUG COMPLETO: loga TODOS os campos de stats para identificar nome real dos campos
     if (raw.length > 0) {
       const sample = raw[0];
-      console.log('[player-stats] keys raiz:', Object.keys(sample));
+      console.log('[player-stats] === DEBUG COMPLETO ===');
+      console.log('[player-stats] keys raiz:', JSON.stringify(Object.keys(sample)));
       const ev0 = sample.event || {};
-      console.log('[player-stats] event keys:', Object.keys(ev0));
-      console.log('[player-stats] league info:', JSON.stringify({
-        league_name: ev0.league_name,
-        league: ev0.league,
-        league_id: ev0.league_id,
-        league_slug: ev0.league_slug,
-      }));
+      console.log('[player-stats] event keys:', JSON.stringify(Object.keys(ev0)));
       const _s0 = sample.stats || sample.statistics || sample.player_stats || {};
-      console.log('[player-stats] stats keys:', Object.keys(_s0));
-      console.log('[player-stats] goal_kicks:', _s0.goal_kicks, sample.goal_kicks);
+      console.log('[player-stats] stats keys:', JSON.stringify(Object.keys(_s0)));
+      console.log('[player-stats] STATS COMPLETO:', JSON.stringify(_s0));
+      console.log('[player-stats] RAIZ (sem event):', JSON.stringify(
+        Object.fromEntries(Object.entries(sample).filter(([k]) => k !== 'event'))
+      ));
     }
 
     // Mapeia para o formato que o frontend scout espera
@@ -646,11 +644,20 @@ app.get('/api/player/:id/stats', async (req, res) => {
 
       // Campos BSD v1 — tenta todos os nomes possíveis no raiz E em subobjetos aninhados
       // A BSD pode retornar stats em g.tackles OU em g.stats.tackles, g.statistics.tackles etc.
-      const _s = g.stats || g.statistics || g.player_stats || {};
+      // A BSD pode entregar stats no raiz do objeto, em g.stats, g.statistics ou g.player_stats
+      // Junta TODOS em um único objeto plano para o pick funcionar em qualquer nível
+      const _s  = g.stats        || {};
+      const _st = g.statistics   || {};
+      const _ps = g.player_stats || {};
+      const _ev = g.event        || {};  // às vezes stats ficam dentro do evento
+
+      // pick: percorre todas as fontes possíveis
       const pick = (...keys) => {
+        const srcs = [g, _s, _st, _ps, _ev];
         for (const k of keys) {
-          for (const src of [g, _s]) {
-            const v = src?.[k];
+          for (const src of srcs) {
+            if (!src) continue;
+            const v = src[k];
             if (v !== null && v !== undefined && v !== '' && !isNaN(Number(v))) return Number(v);
           }
         }
@@ -661,16 +668,16 @@ app.get('/api/player/:id/stats', async (req, res) => {
         opponent:   opponent || '—',
         score,
         result,
-        // comp removido a pedido
         data:       data_jogo,
-        chutes:     pick('total_shots','shots','shots_total','shot_total','attemptedShots','attempts'),
-        chutes_gol: pick('shots_on_target','shots_on_goal','shot_on_target','on_target','shotsOnTarget'),
-        desarmes:   pick('tackles_won','tackles','tackle_won','total_tackles','tackles_total'),
-        ftc:        pick('fouls_committed','fouls','foul_committed','total_fouls','foulsCommitted','fouls_made'),
-        fts:        pick('fouls_drawn','was_fouled','foul_drawn','fouled','fouls_suffered','foulsDrawn'),
-        amarelos:   pick('yellow_cards','yellow_card','yellowCards','yellow','cards_yellow','bookings'),
-        vermelhos:  pick('red_cards','red_card','redCards','red','cards_red','red_card_direct'),
-        defesas:    pick('saves','goalkeeper_saves','gk_saves','save','total_saves','goalSaved','saved'),
+        chutes:     pick('total_shots','shots','shots_total','shot_total','attemptedShots','attempts','total_attempts'),
+        chutes_gol: pick('shots_on_target','shots_on_goal','shot_on_target','on_target','shotsOnTarget','shots_on_goal_total'),
+        desarmes:   pick('tackles_won','tackles','tackle_won','total_tackles','tackles_total','tackles_successful',
+                         'interceptions','total_clearances','clearances','duels_won','ground_duels_won','ball_recoveries','ball_recovery'),
+        ftc:        pick('fouls_committed','fouls','foul_committed','total_fouls','foulsCommitted','fouls_made','fouls_total'),
+        fts:        pick('fouls_drawn','was_fouled','foul_drawn','fouled','fouls_suffered','foulsDrawn','fouls_received'),
+        amarelos:   pick('yellow_cards','yellow_card','yellowCards','yellow','cards_yellow','bookings','cautions'),
+        vermelhos:  pick('red_cards','red_card','redCards','red','cards_red','red_card_direct','dismissals'),
+        defesas:    pick('saves','goalkeeper_saves','gk_saves','save','total_saves','goalSaved','saved','saves_total'),
       };
     });
 
