@@ -721,62 +721,73 @@ app.get('/api/arbitros/buscar', async (req, res) => {
 // ─────────────────────────────────────────────
 app.get('/api/arbitros/proximos', async (req, res) => {
   try {
-    const { league_id } = req.query;
+    const { league_id, name } = req.query;
 
-    // BSD v2: /referees/ retorna lista paginada com stats agregados
-    // Parâmetros: id_da_liga (league), nome, código_do_país, min_matches, limite/deslocamento
-    const params = { limit: 50 };
-    if (league_id) params.league = league_id;
+    // ESTRATÉGIA: buscar próximos eventos → extrair referee_id únicos
+    // → buscar dados de cada árbitro em /referees/{id}/
+    // Isso garante que o filtro por liga funciona corretamente
+    const evParams = {
+      date_from: today(),
+      date_to: dayOffset(7),
+      limit: 200,
+      tz: 'America/Sao_Paulo'
+    };
+    if (league_id) evParams.league = league_id;
 
-    const data = await bsd('/referees/', params);
-    const lista = data.results || [];
+    const evData = await bsd('/events/', evParams);
+    const eventos = evData.results || [];
 
-    // Busca próximos jogos para cruzar com árbitros (para saber quais estão escalados)
-    let proximosJogos = [];
-    try {
-      const evParams = {
-        date_from: today(),
-        date_to: dayOffset(7),
-        limit: 100,
-        status: 'ns'  // not started = próximos
-      };
-      if (league_id) evParams.league = league_id;
-      const evData = await bsd('/events/', evParams);
-      proximosJogos = evData.results || [];
-    } catch (_) {}
-
-    // Mapa: referee_id → jogos próximos
-    const refJogosMap = new Map();
-    for (const ev of proximosJogos) {
-      const rId = ev.referee_id || null;
-      const rNome = ev.referee || ev.referee_name || null;
+    // Mapa: referee_id → jogos do próximos 7 dias
+    const refMap = new Map();
+    for (const ev of eventos) {
+      const rId   = ev.referee_id   || null;
+      const rNome = ev.referee      || ev.referee_name || null;
       if (!rId && !rNome) continue;
-      const key = rId || rNome;
-      if (!refJogosMap.has(key)) refJogosMap.set(key, []);
-      refJogosMap.get(key).push({
-        id: ev.id,
-        home_team: ev.home_team,
-        away_team: ev.away_team,
-        event_date: ev.event_date,
-        league_name: ev.league?.name || ev.league_name || '—'
+      const key = rId ?? rNome;
+      if (!refMap.has(key)) refMap.set(key, { id: rId, name: rNome, jogos: [] });
+      refMap.get(key).jogos.push({
+        id:          ev.id,
+        home_team:   ev.home_team,
+        away_team:   ev.away_team,
+        event_date:  ev.event_date,
+        league_name: ev.league?.name || ev.league_name || '—',
+        league_id:   ev.league?.id   || ev.league_id   || null
       });
     }
 
-    // Monta resposta: árbitros da lista /referees/ que têm jogo nos próximos 7 dias
-    // Se não houver cruzamento (BSD não retorna referee_id nos eventos), retorna todos
-    const arbitros = lista.map(r => ({
-      id:           r.id,
-      name:         r.name || '—',
-      country:      r.country || r.nationality_a3 || '—',
-      matches:      r.matches || 0,
-      yellow_cards: r.total_yellow_cards || 0,
-      red_cards:    r.total_red_cards || 0,
-      avg_yellow:   r.avg_yellow_per_match || 0,
-      avg_red:      r.avg_red_per_match || 0,
-      avg_fouls:    r.avg_fouls_per_match || 0,
-      jogos:        refJogosMap.get(r.id) || refJogosMap.get(r.name) || []
-    })).filter(r => r.name !== '—');
+    // Busca dados agregados de cada árbitro identificado
+    // (usa /referees/{id}/ se tiver id, senão usa /referees/?name=)
+    const arbitros = [];
+    for (const entry of refMap.values()) {
+      let detail = null;
+      try {
+        if (entry.id) {
+          detail = await bsd(`/referees/${entry.id}/`);
+        } else if (entry.name) {
+          const r = await bsd('/referees/', { name: entry.name, limit: 1 });
+          detail = (r.results || [])[0] || null;
+        }
+      } catch (_) {}
 
+      // Filtro por nome (busca local)
+      const nomeFiltro = (name || '').toLowerCase();
+      const nomeArb = (detail?.name || entry.name || '').toLowerCase();
+      if (nomeFiltro && !nomeArb.includes(nomeFiltro)) continue;
+
+      arbitros.push({
+        id:          detail?.id   || entry.id   || null,
+        name:        detail?.name || entry.name || '—',
+        country:     detail?.country || detail?.nationality_a3 || '—',
+        matches:     detail?.matches || 0,
+        avg_yellow:  detail?.avg_yellow_per_match || null,
+        avg_red:     detail?.avg_red_per_match    || null,
+        avg_fouls:   detail?.avg_fouls_per_match  || null,
+        jogos:       entry.jogos
+      });
+    }
+
+    // Ordena por nome
+    arbitros.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
     res.json({ arbitros, total: arbitros.length });
   } catch (e) {
     console.error('[arbitros/proximos]', e.message);
