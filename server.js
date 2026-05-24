@@ -537,96 +537,79 @@ app.get('/api/squad/:id', async (req, res) => {
   }
 });
 
-// Stats do jogador → /api/player/:id/stats?teamId=X  (formato que o scout original usa)
+// Stats do jogador → /api/player/:id/stats?teamId=X
+// Usa BSD v2: /players/{id}/stats/ que retorna uma lista de entradas por partida
+// Cada entrada tem os campos direto na raiz: total_shots, shots_on_target,
+// total_tackle, interception, yellow_card, red_card, saves, fouls_committed etc.
 app.get('/api/player/:id/stats', async (req, res) => {
   try {
     const { teamId } = req.query;
     const playerId = req.params.id;
 
-    // Busca o season_id atual via /api/player-stats/ filtrado por jogador
-    // A BSD v1 usa /api/player-stats/?player=ID&season=ID
-    // Primeiro buscamos as ligas para pegar os current_season ids
-    let seasonIds = [];
-    try {
-      const ligas = await fetch(`https://sports.bzzoiro.com/api/leagues/`, {
-        headers: { Authorization: `Token ${BSD_TOKEN}` }
-      }).then(r => r.json());
-      seasonIds = (ligas.results || [])
-        .map(l => l.current_season?.id)
-        .filter(Boolean);
-    } catch (_) {}
-
-    // Tenta buscar stats com o season mais recente (tenta os primeiros 3)
+    // ── TENTATIVA 1: endpoint v2 /players/{id}/stats/ (retorna por partida) ──
     let raw = [];
-    const seasonsToTry = seasonIds.slice(0, 5);
-
-    for (const sid of seasonsToTry) {
-      try {
-        const url = `https://sports.bzzoiro.com/api/player-stats/?player=${playerId}&season=${sid}&limit=20`;
-        const data = await fetch(url, {
-          headers: { Authorization: `Token ${BSD_TOKEN}` }
-        }).then(r => r.json());
-        const items = data.results || [];
-        if (items.length > 0) { raw = items; break; }
-      } catch (_) {}
+    try {
+      const data = await bsd(`/players/${playerId}/stats/`, { limit: 20 });
+      raw = data.results || [];
+      console.log(`[player-stats v2] /players/${playerId}/stats/ → ${raw.length} registros`);
+    } catch (e) {
+      console.warn('[player-stats v2] falhou:', e.message);
     }
 
-    // Se não achou em nenhuma season, tenta sem filtro de season mas com date_from
+    // ── TENTATIVA 2: endpoint /events/{id}/player-stats/ via jogos recentes do time ──
+    if (!raw.length && teamId) {
+      try {
+        const jogosTime = await bsd('/events/', {
+          team: teamId,
+          date_to: today(),
+          limit: 10,
+          ordering: '-event_date'
+        });
+        for (const ev of (jogosTime.results || []).slice(0, 5)) {
+          const ps = await bsd(`/events/${ev.id}/player-stats/`);
+          const item = (ps.player_stats || ps.results || []).find(
+            p => String(p.player_id) === String(playerId)
+          );
+          if (item) {
+            raw.push({ ...item, _event: ev });
+          }
+        }
+        console.log(`[player-stats] via events → ${raw.length} registros`);
+      } catch (e) {
+        console.warn('[player-stats] via events falhou:', e.message);
+      }
+    }
+
     if (!raw.length) {
-      try {
-        const anoAtual = new Date().getFullYear();
-        const url = `https://sports.bzzoiro.com/api/player-stats/?player=${playerId}&date_from=${anoAtual - 1}-07-01&limit=15&tz=America/Sao_Paulo`;
-        const data = await fetch(url, {
-          headers: { Authorization: `Token ${BSD_TOKEN}` }
-        }).then(r => r.json());
-        raw = data.results || [];
-      } catch (_) {}
+      return res.json({ jogos: [], fromCache: false });
     }
+
+    // Log do primeiro item para diagnóstico
+    console.log('[player-stats] AMOSTRA RAIZ:', JSON.stringify(Object.keys(raw[0])));
+    console.log('[player-stats] AMOSTRA VALORES:', JSON.stringify(raw[0]));
 
     // Ordena por data mais recente
-    raw.sort((a, b) => new Date(b.event?.event_date || 0) - new Date(a.event?.event_date || 0));
+    raw.sort((a, b) => {
+      const da = a.event?.event_date || a._event?.event_date || a.event_date || 0;
+      const db = b.event?.event_date || b._event?.event_date || b.event_date || 0;
+      return new Date(db) - new Date(da);
+    });
 
-    // DEBUG COMPLETO: loga TODOS os campos de stats para identificar nome real dos campos
-    if (raw.length > 0) {
-      const sample = raw[0];
-      console.log('[player-stats] === DEBUG COMPLETO ===');
-      console.log('[player-stats] keys raiz:', JSON.stringify(Object.keys(sample)));
-      const ev0 = sample.event || {};
-      console.log('[player-stats] event keys:', JSON.stringify(Object.keys(ev0)));
-      const _s0 = sample.stats || sample.statistics || sample.player_stats || {};
-      console.log('[player-stats] stats keys:', JSON.stringify(Object.keys(_s0)));
-      console.log('[player-stats] STATS COMPLETO:', JSON.stringify(_s0));
-      console.log('[player-stats] RAIZ (sem event):', JSON.stringify(
-        Object.fromEntries(Object.entries(sample).filter(([k]) => k !== 'event'))
-      ));
-    }
-
-    // Mapeia para o formato que o frontend scout espera
     const jogos = raw.slice(0, 7).map(g => {
-      const ev = g.event || {};
+      // Suporte a ambos formatos: evento aninhado em g.event ou g._event
+      const ev = g.event || g._event || {};
 
-      // Usa o teamId passado na query para saber qual lado é o jogador
-      // teamId = ID do time selecionado pelo usuário no scout
       let opponent, myScore, oppScore;
       if (String(ev.home_team_id) === String(teamId)) {
-        opponent = ev.away_team;
-        myScore  = ev.home_score;
-        oppScore = ev.away_score;
+        opponent = ev.away_team;  myScore = ev.home_score; oppScore = ev.away_score;
       } else if (String(ev.away_team_id) === String(teamId)) {
-        opponent = ev.home_team;
-        myScore  = ev.away_score;
-        oppScore = ev.home_score;
+        opponent = ev.home_team;  myScore = ev.away_score; oppScore = ev.home_score;
       } else {
-        // Fallback: usa player.team para comparar
-        const playerTeamName = g.player?.team || '';
-        if (playerTeamName === ev.home_team) {
-          opponent = ev.away_team;
-          myScore  = ev.home_score;
-          oppScore = ev.away_score;
+        const playerTeam = g.player?.team || g.team_name || '';
+        if (playerTeam === ev.home_team) {
+          opponent = ev.away_team;  myScore = ev.home_score; oppScore = ev.away_score;
         } else {
-          opponent = ev.home_team;
-          myScore  = ev.away_score;
-          oppScore = ev.home_score;
+          opponent = ev.home_team;  myScore = ev.away_score; oppScore = ev.home_score;
         }
       }
 
@@ -638,28 +621,19 @@ app.get('/api/player/:id/stats', async (req, res) => {
       const score = (ev.home_score != null && ev.away_score != null)
         ? `${ev.home_score}-${ev.away_score}` : '—';
 
-      const data_jogo = ev.event_date
-        ? new Date(ev.event_date).toLocaleDateString('pt-BR', { day:'2-digit', month:'2-digit', timeZone:'America/Sao_Paulo' })
+      const data_jogo = (ev.event_date || g.event_date)
+        ? new Date(ev.event_date || g.event_date).toLocaleDateString('pt-BR',
+            { day:'2-digit', month:'2-digit', timeZone:'America/Sao_Paulo' })
         : '—';
 
-      // Campos BSD v1 — tenta todos os nomes possíveis no raiz E em subobjetos aninhados
-      // A BSD pode retornar stats em g.tackles OU em g.stats.tackles, g.statistics.tackles etc.
-      // A BSD pode entregar stats no raiz do objeto, em g.stats, g.statistics ou g.player_stats
-      // Junta TODOS em um único objeto plano para o pick funcionar em qualquer nível
-      const _s  = g.stats        || {};
-      const _st = g.statistics   || {};
-      const _ps = g.player_stats || {};
-      const _ev = g.event        || {};  // às vezes stats ficam dentro do evento
-
-      // pick: percorre todas as fontes possíveis
+      // pick: procura o campo direto na raiz de g (formato BSD v2)
+      // Os campos v2 confirmados pela documentação:
+      //   total_shots, shots_on_target, total_tackle, interception,
+      //   yellow_card, red_card, saves, fouls_committed, minutes_played, goals, goal_assist
       const pick = (...keys) => {
-        const srcs = [g, _s, _st, _ps, _ev];
         for (const k of keys) {
-          for (const src of srcs) {
-            if (!src) continue;
-            const v = src[k];
-            if (v !== null && v !== undefined && v !== '' && !isNaN(Number(v))) return Number(v);
-          }
+          const v = g[k];
+          if (v !== null && v !== undefined && v !== '' && !isNaN(Number(v))) return Number(v);
         }
         return null;
       };
@@ -669,20 +643,27 @@ app.get('/api/player/:id/stats', async (req, res) => {
         score,
         result,
         data:       data_jogo,
-        chutes:     pick('total_shots','shots','shots_total','shot_total','attemptedShots','attempts','total_attempts'),
-        chutes_gol: pick('shots_on_target','shots_on_goal','shot_on_target','on_target','shotsOnTarget','shots_on_goal_total'),
-        desarmes:   pick('tackles_won','tackles','tackle_won','total_tackles','tackles_total','tackles_successful',
-                         'interceptions','total_clearances','clearances','duels_won','ground_duels_won','ball_recoveries','ball_recovery'),
-        ftc:        pick('fouls_committed','fouls','foul_committed','total_fouls','foulsCommitted','fouls_made','fouls_total'),
-        fts:        pick('fouls_drawn','was_fouled','foul_drawn','fouled','fouls_suffered','foulsDrawn','fouls_received'),
-        amarelos:   pick('yellow_cards','yellow_card','yellowCards','yellow','cards_yellow','bookings','cautions'),
-        vermelhos:  pick('red_cards','red_card','redCards','red','cards_red','red_card_direct','dismissals'),
-        defesas:    pick('saves','goalkeeper_saves','gk_saves','save','total_saves','goalSaved','saved','saves_total'),
+        // Nomes EXATOS da BSD v2 (confirmados no print da documentação)
+        chutes:     pick('total_shots', 'shots'),
+        chutes_gol: pick('shots_on_target', 'shots_on_goal'),
+        desarmes:   pick('total_tackle', 'interception'),   // ← campos EXATOS da v2
+        ftc:        pick('fouls_committed', 'fouls'),
+        fts:        pick('fouls_drawn', 'was_fouled'),
+        amarelos:   pick('yellow_card', 'yellow_cards'),
+        vermelhos:  pick('red_card', 'red_cards'),
+        defesas:    pick('saves'),
+        // Extras (disponíveis na v2, usados no veredito)
+        gols:       pick('goals'),
+        assistencias: pick('goal_assist'),
+        minutos:    pick('minutes_played'),
+        passes:     pick('accurate_pass', 'total_pass'),
+        rating:     pick('rating'),
       };
     });
 
     res.json({ jogos, fromCache: false });
   } catch (e) {
+    console.error('[player-stats] erro:', e.message);
     res.status(500).json({ error: e.message });
   }
 });
@@ -745,48 +726,64 @@ app.get('/api/arbitros/buscar', async (req, res) => {
 app.get('/api/arbitros/proximos', async (req, res) => {
   try {
     const { league_id } = req.query;
-    const qs = new URLSearchParams({
-      date_from: today(),
-      date_to: dayOffset(7),
-      limit: 100,
-      tz: 'America/Sao_Paulo'
-    });
-    if (league_id) qs.set('league', league_id);
 
-    const data = await fetch(
-      `https://sports.bzzoiro.com/api/events/?${qs}`,
-      { headers: { Authorization: `Token ${BSD_TOKEN}` } }
-    ).then(r => r.json());
+    // BSD v2: /referees/ retorna lista paginada com stats agregados
+    // Parâmetros: id_da_liga (league), nome, código_do_país, min_matches, limite/deslocamento
+    const params = { limit: 50 };
+    if (league_id) params.league = league_id;
 
-    // Extrai árbitros únicos com seus jogos
-    const refMap = new Map();
-    (data.results || []).forEach(ev => {
-      const ref = ev.referee || ev.referee_name;
-      const refId = ev.referee_id;
-      if (!ref && !refId) return;
-      const key = refId || ref;
-      if (!refMap.has(key)) {
-        refMap.set(key, {
-          id: refId || null,
-          name: ref || '—',
-          jogos: []
-        });
-      }
-      refMap.get(key).jogos.push({
+    const data = await bsd('/referees/', params);
+    const lista = data.results || [];
+
+    // Busca próximos jogos para cruzar com árbitros (para saber quais estão escalados)
+    let proximosJogos = [];
+    try {
+      const evParams = {
+        date_from: today(),
+        date_to: dayOffset(7),
+        limit: 100,
+        status: 'ns'  // not started = próximos
+      };
+      if (league_id) evParams.league = league_id;
+      const evData = await bsd('/events/', evParams);
+      proximosJogos = evData.results || [];
+    } catch (_) {}
+
+    // Mapa: referee_id → jogos próximos
+    const refJogosMap = new Map();
+    for (const ev of proximosJogos) {
+      const rId = ev.referee_id || null;
+      const rNome = ev.referee || ev.referee_name || null;
+      if (!rId && !rNome) continue;
+      const key = rId || rNome;
+      if (!refJogosMap.has(key)) refJogosMap.set(key, []);
+      refJogosMap.get(key).push({
         id: ev.id,
         home_team: ev.home_team,
         away_team: ev.away_team,
         event_date: ev.event_date,
         league_name: ev.league?.name || ev.league_name || '—'
       });
-    });
+    }
 
-    const arbitros = Array.from(refMap.values())
-      .filter(r => r.name && r.name !== '—')
-      .sort((a, b) => a.name.localeCompare(b.name));
+    // Monta resposta: árbitros da lista /referees/ que têm jogo nos próximos 7 dias
+    // Se não houver cruzamento (BSD não retorna referee_id nos eventos), retorna todos
+    const arbitros = lista.map(r => ({
+      id:           r.id,
+      name:         r.name || '—',
+      country:      r.country || r.nationality_a3 || '—',
+      matches:      r.matches || 0,
+      yellow_cards: r.total_yellow_cards || 0,
+      red_cards:    r.total_red_cards || 0,
+      avg_yellow:   r.avg_yellow_per_match || 0,
+      avg_red:      r.avg_red_per_match || 0,
+      avg_fouls:    r.avg_fouls_per_match || 0,
+      jogos:        refJogosMap.get(r.id) || refJogosMap.get(r.name) || []
+    })).filter(r => r.name !== '—');
 
     res.json({ arbitros, total: arbitros.length });
   } catch (e) {
+    console.error('[arbitros/proximos]', e.message);
     res.status(500).json({ error: e.message });
   }
 });
