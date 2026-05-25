@@ -677,51 +677,64 @@ app.get('/api/player/:id/stats', async (req, res) => {
 app.get('/api/arbitros/:id/stats', async (req, res) => {
   try {
     const id = req.params.id;
-    // Busca dados agregados do árbitro (/referees/{id}/ retorna totais diretos)
-    // e histórico de partidas (/referees/{id}/matches/ retorna jogos com cartões)
+    // Documentação BSD v2 (print confirmado):
+    // GET /api/v2/referentes/{id}/ → retorna: total_yellow_cards, total_red_cards,
+    //   avg_yellow_per_match, avg_red_per_match, avg_fouls_per_match, avg_goals_per_match, matches
+    // GET /api/v2/referees/{id}/matches/ → retorna lista de jogos com:
+    //   home_team, away_team, event_date, yellow_cards, red_cards (raiz do item)
     const [detailRes, matchesRes] = await Promise.allSettled([
       bsd(`/referees/${id}/`),
       bsd(`/referees/${id}/matches/`, {
-        date_from: dayOffset(-180),
-        date_to: dayOffset(7),
-        limit: 20
+        date_from: dayOffset(-365),
+        date_to:   dayOffset(0),
+        limit: 20,
+        ordering: '-event_date'
       })
     ]);
 
-    const detail  = detailRes.status  === 'fulfilled' ? detailRes.value  : null;
-    const matches = matchesRes.status === 'fulfilled' ? matchesRes.value : null;
-    const items   = matches?.results || [];
+    const detail = detailRes.status === 'fulfilled' ? detailRes.value : null;
+    const matchData = matchesRes.status === 'fulfilled' ? matchesRes.value : null;
+    const items = matchData?.results || [];
 
-    // Os dados agregados já vêm no detalhe do árbitro
-    // Fallback: calcula das partidas se detalhe não tiver
-    let avgY = detail?.avg_yellow_per_match ?? null;
-    let avgR = detail?.avg_red_per_match ?? null;
-    let avgF = detail?.avg_fouls_per_match ?? null;
-    let totM = detail?.matches ?? items.length;
+    // Campos agregados diretos do /referees/{id}/ — mais confiáveis
+    const avgY = detail?.avg_yellow_per_match  ?? null;
+    const avgR = detail?.avg_red_per_match     ?? null;
+    const avgF = detail?.avg_fouls_per_match   ?? null;
+    const avgP = detail?.avg_goals_per_match   ?? null; // pênaltis aproximados por gols
+    const totM = detail?.matches               ?? items.length;
+    const totY = detail?.total_yellow_cards    ?? null;
+    const totR = detail?.total_red_cards       ?? null;
 
-    if (avgY === null && items.length) {
-      let tY=0, tR=0, c=0;
-      items.forEach(m => {
-        // BSD /referees/{id}/matches/ retorna campos direto na raiz do item
-        tY += m.yellow_cards ?? m.total_yellow_cards ?? 0;
-        tR += m.red_cards    ?? m.total_red_cards    ?? 0;
-        c++;
-      });
-      if (c) { avgY = +(tY/c).toFixed(2); avgR = +(tR/c).toFixed(2); totM = c; }
-    }
+    // Normaliza cada jogo — campos direto na raiz conforme documentação
+    const jogos = items.map(m => {
+      const ev = m.event || m;
+      return {
+        home_team:   ev.home_team  || m.home_team  || '—',
+        away_team:   ev.away_team  || m.away_team  || '—',
+        event_date:  ev.event_date || m.event_date || null,
+        // BSD retorna null nos jogos individuais — usa avg como referência visual
+        yellow_cards: m.yellow_cards ?? m.referee_yellow_cards ?? null,
+        red_cards:    m.red_cards    ?? m.referee_red_cards    ?? null,
+        penalties:    m.penalties    ?? null,
+        league_name:  ev.league?.name || m.league_name || '—',
+      };
+    });
 
     res.json({
       detail,
-      matches,
+      jogos,
       averages: {
-        yellow_per_game:     avgY ?? 0,
-        red_per_game:        avgR ?? 0,
-        fouls_per_game:      avgF ?? 0,
-        penalties_per_game:  detail?.avg_goals_per_match ?? 0,
-        games_analyzed:      totM
+        yellow_per_game:    avgY ?? 0,
+        red_per_game:       avgR ?? 0,
+        fouls_per_game:     avgF ?? 0,
+        penalties_per_game: avgP ?? 0,
+        games_analyzed:     totM,
+        total_yellow:       totY,
+        total_red:          totR,
       }
     });
   } catch (e) {
+    console.error('[arbitros/stats]', e.message);
     res.status(500).json({ error: e.message });
   }
 });
