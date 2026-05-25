@@ -608,9 +608,20 @@ app.get('/api/player/:id/stats', async (req, res) => {
       } else if (awayId && awayId === String(teamId)) {
         opponent = ev.home_team;  myScore = ev.away_score; oppScore = ev.home_score;
       } else {
-        // Último fallback: exibe jogo completo
-        opponent = `${ev.home_team} × ${ev.away_team}`;
-        myScore = null; oppScore = null;
+        // Último fallback: tenta pelo nome do time no item do player-stats
+        const ht  = (ev.home_team || '').toLowerCase();
+        const at  = (ev.away_team || '').toLowerCase();
+        const tn  = (g.team?.name || g.team_name || g.player?.team || '').toLowerCase();
+        const tok = tn ? tn.split(' ')[0] : '';
+        if (tok && ht.includes(tok)) {
+          opponent = ev.away_team;  myScore = ev.home_score; oppScore = ev.away_score;
+        } else if (tok && at.includes(tok)) {
+          opponent = ev.home_team;  myScore = ev.away_score; oppScore = ev.home_score;
+        } else {
+          // Sem informação de lado — mantém jogo completo para o frontend resolver
+          opponent = `${ev.home_team} × ${ev.away_team}`;
+          myScore = null; oppScore = null;
+        }
       }
 
       let result = '—';
