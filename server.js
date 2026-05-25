@@ -712,17 +712,33 @@ app.get('/api/arbitros/:id/stats', async (req, res) => {
         try {
           const inc = await bsd(`/events/${evId}/incidents/`);
           const list = inc.results || inc.incidents || [];
-          // Tipos de incidente: yellow_card, red_card, yellow_red_card
-          yellow = list.filter(i =>
-            i.type === 'yellow_card' || i.type === 'yellowCard' ||
-            i.incident_type === 'yellow_card' || i.card === 'yellow'
-          ).length || null;
-          red = list.filter(i =>
-            i.type === 'red_card' || i.type === 'redCard' ||
-            i.type === 'yellow_red_card' ||
-            i.incident_type === 'red_card' || i.card === 'red'
-          ).length || null;
-        } catch (_) {}
+          if (list.length > 0) {
+            // Log do primeiro incidente para ver o formato real
+            console.log(`[arb-incidents] evento ${evId} sample:`, JSON.stringify(list[0]));
+            yellow = list.filter(i =>
+              i.type === 'yellow_card' || i.type === 'yellowCard' ||
+              i.incident_type === 'yellow_card' || i.card === 'yellow' ||
+              i.subtype === 'yellow_card' || String(i.type).toLowerCase().includes('yellow')
+            ).length;
+            red = list.filter(i =>
+              i.type === 'red_card'    || i.type === 'redCard' ||
+              i.type === 'yellow_red_card' || i.type === 'yellowRedCard' ||
+              i.incident_type === 'red_card' || i.card === 'red' ||
+              i.subtype === 'red_card' || String(i.type).toLowerCase().includes('red')
+            ).length;
+          } else {
+            // Fallback: tenta stats do evento (tem yellow_cards somados por time)
+            try {
+              const st = await bsd(`/events/${evId}/stats/`);
+              const sh = st?.stats?.home || st?.home || {};
+              const sa = st?.stats?.away || st?.away || {};
+              yellow = (Number(sh.yellow_cards||0) + Number(sa.yellow_cards||0)) || null;
+              red    = (Number(sh.red_cards||0)    + Number(sa.red_cards||0))    || null;
+            } catch (_) {}
+          }
+        } catch (e) {
+          console.warn(`[arb-incidents] erro evento ${evId}:`, e.message);
+        }
       }
 
       return {
