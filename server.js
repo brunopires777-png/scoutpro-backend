@@ -677,52 +677,68 @@ app.get('/api/player/:id/stats', async (req, res) => {
 app.get('/api/arbitros/:id/stats', async (req, res) => {
   try {
     const id = req.params.id;
-    // Documentação BSD v2 (print confirmado):
-    // GET /api/v2/referentes/{id}/ → retorna: total_yellow_cards, total_red_cards,
-    //   avg_yellow_per_match, avg_red_per_match, avg_fouls_per_match, avg_goals_per_match, matches
-    // GET /api/v2/referees/{id}/matches/ → retorna lista de jogos com:
-    //   home_team, away_team, event_date, yellow_cards, red_cards (raiz do item)
     const [detailRes, matchesRes] = await Promise.allSettled([
       bsd(`/referees/${id}/`),
       bsd(`/referees/${id}/matches/`, {
         date_from: dayOffset(-365),
         date_to:   dayOffset(0),
-        limit: 20,
+        limit: 15,
         ordering: '-event_date'
       })
     ]);
 
-    const detail = detailRes.status === 'fulfilled' ? detailRes.value : null;
+    const detail    = detailRes.status  === 'fulfilled' ? detailRes.value  : null;
     const matchData = matchesRes.status === 'fulfilled' ? matchesRes.value : null;
-    const items = matchData?.results || [];
+    const items     = matchData?.results || [];
 
-    // Campos agregados diretos do /referees/{id}/ — mais confiáveis
-    const avgY = detail?.avg_yellow_per_match  ?? null;
-    const avgR = detail?.avg_red_per_match     ?? null;
-    const avgF = detail?.avg_fouls_per_match   ?? null;
-    const avgP = detail?.avg_goals_per_match   ?? null; // pênaltis aproximados por gols
-    const totM = detail?.matches               ?? items.length;
-    const totY = detail?.total_yellow_cards    ?? null;
-    const totR = detail?.total_red_cards       ?? null;
+    const avgY = detail?.avg_yellow_per_match ?? null;
+    const avgR = detail?.avg_red_per_match    ?? null;
+    const avgF = detail?.avg_fouls_per_match  ?? null;
+    const avgP = detail?.avg_goals_per_match  ?? null;
+    const totM = detail?.matches              ?? items.length;
+    const totY = detail?.total_yellow_cards   ?? null;
+    const totR = detail?.total_red_cards      ?? null;
 
-    // Normaliza cada jogo — campos direto na raiz conforme documentação
-    const jogos = items.map(m => {
-      const ev = m.event || m;
+    // Para cada jogo, busca os incidentes para contar cartões reais por partida
+    // /events/{id}/incidents/ retorna gols, cartões, substituições etc.
+    const jogos = await Promise.all(items.map(async m => {
+      const ev  = m.event || m;
+      const evId = ev.id || m.id || null;
+      let yellow = m.yellow_cards ?? m.referee_yellow_cards ?? null;
+      let red    = m.red_cards    ?? m.referee_red_cards    ?? null;
+
+      // Se a BSD não retornou cartões no item, busca nos incidentes do evento
+      if (evId && (yellow === null || red === null)) {
+        try {
+          const inc = await bsd(`/events/${evId}/incidents/`);
+          const list = inc.results || inc.incidents || [];
+          // Tipos de incidente: yellow_card, red_card, yellow_red_card
+          yellow = list.filter(i =>
+            i.type === 'yellow_card' || i.type === 'yellowCard' ||
+            i.incident_type === 'yellow_card' || i.card === 'yellow'
+          ).length || null;
+          red = list.filter(i =>
+            i.type === 'red_card' || i.type === 'redCard' ||
+            i.type === 'yellow_red_card' ||
+            i.incident_type === 'red_card' || i.card === 'red'
+          ).length || null;
+        } catch (_) {}
+      }
+
       return {
-        home_team:   ev.home_team  || m.home_team  || '—',
-        away_team:   ev.away_team  || m.away_team  || '—',
-        event_date:  ev.event_date || m.event_date || null,
-        // BSD retorna null nos jogos individuais — usa avg como referência visual
-        yellow_cards: m.yellow_cards ?? m.referee_yellow_cards ?? null,
-        red_cards:    m.red_cards    ?? m.referee_red_cards    ?? null,
-        penalties:    m.penalties    ?? null,
+        id:           evId,
+        home_team:    ev.home_team  || m.home_team  || '—',
+        away_team:    ev.away_team  || m.away_team  || '—',
+        event_date:   ev.event_date || m.event_date || null,
+        yellow_cards: yellow,
+        red_cards:    red,
+        penalties:    m.penalties  ?? null,
         league_name:  ev.league?.name || m.league_name || '—',
       };
-    });
+    }));
 
     res.json({
-      detail,
-      jogos,
+      detail, jogos,
       averages: {
         yellow_per_game:    avgY ?? 0,
         red_per_game:       avgR ?? 0,
