@@ -1114,49 +1114,44 @@ app.get('/api/arbitros/:id/jogos', async (req, res) => {
 // ─────────────────────────────────────────────
 // IMAGENS (proxy das imagens BSD sem revelar origem)
 // ─────────────────────────────────────────────
-app.get('/img/player/:id', async (req, res) => {
-  try {
-    const r = await fetch(`https://sports.bzzoiro.com/img/player/${req.params.id}/`);
-    res.set('Content-Type', r.headers.get('content-type') || 'image/png');
-    res.set('Cache-Control', 'public, max-age=86400');
-    r.body.pipe(res);
-  } catch {
-    res.status(404).end();
-  }
-});
 
-app.get('/img/team/:id', async (req, res) => {
-  try {
-    const r = await fetch(`https://sports.bzzoiro.com/img/team/${req.params.id}/`);
-    res.set('Content-Type', r.headers.get('content-type') || 'image/png');
-    res.set('Cache-Control', 'public, max-age=86400');
-    r.body.pipe(res);
-  } catch {
-    res.status(404).end();
-  }
-});
 
-app.get('/img/league/:id', async (req, res) => {
-  try {
-    const r = await fetch(`https://sports.bzzoiro.com/img/league/${req.params.id}/`);
-    res.set('Content-Type', r.headers.get('content-type') || 'image/png');
-    res.set('Cache-Control', 'public, max-age=86400');
-    r.body.pipe(res);
-  } catch {
-    res.status(404).end();
-  }
-});
+// Cache de imagens em disco — evita rebaixar a mesma imagem
+const fs   = require('fs');
+const path = require('path');
+const IMG_CACHE_DIR = path.join(__dirname, '.img_cache');
+if (!fs.existsSync(IMG_CACHE_DIR)) fs.mkdirSync(IMG_CACHE_DIR, { recursive: true });
 
-app.get('/img/manager/:id', async (req, res) => {
+async function serveImg(tipo, id, res) {
+  if (!id || id === 'null' || id === 'undefined') return res.status(404).end();
+  const cacheFile = path.join(IMG_CACHE_DIR, `${tipo}_${id}`);
+  // Serve do cache em disco se existir
+  if (fs.existsSync(cacheFile)) {
+    const buf = fs.readFileSync(cacheFile);
+    const ext = buf[0]===0x89 ? 'image/png' : buf[0]===0xFF ? 'image/jpeg' : 'image/webp';
+    res.set('Content-Type', ext);
+    res.set('Cache-Control', 'public, max-age=2592000');
+    return res.send(buf);
+  }
+  // Baixa da BSD e salva
   try {
-    const r = await fetch(`https://sports.bzzoiro.com/img/manager/${req.params.id}/`);
+    const r = await fetch(`https://sports.bzzoiro.com/img/${tipo}/${id}/`);
+    if (!r.ok) return res.status(404).end();
+    const buf = Buffer.from(await r.arrayBuffer());
+    fs.writeFileSync(cacheFile, buf);
     res.set('Content-Type', r.headers.get('content-type') || 'image/png');
-    res.set('Cache-Control', 'public, max-age=86400');
-    r.body.pipe(res);
+    res.set('Cache-Control', 'public, max-age=2592000');
+    res.send(buf);
   } catch {
     res.status(404).end();
   }
-});
+}
+
+app.get('/img/team/:id',    (req, res) => serveImg('team',    req.params.id, res));
+app.get('/img/league/:id',  (req, res) => serveImg('league',  req.params.id, res));
+app.get('/img/player/:id',  (req, res) => serveImg('player',  req.params.id, res));
+app.get('/img/manager/:id', (req, res) => serveImg('manager', req.params.id, res));
+app.get('/img/venue/:id',   (req, res) => serveImg('venue',   req.params.id, res));
 
 // ─────────────────────────────────────────────
 // ODDS — lista e comparativo
