@@ -2,6 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const fetch = (...args) => import('node-fetch').then(({ default: f }) => f(...args));
 const path = require('path');
+const fs   = require('fs');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -1129,8 +1130,6 @@ app.get('/api/arbitros/:id/jogos', async (req, res) => {
 
 
 // Cache de imagens em disco — evita rebaixar a mesma imagem
-const fs   = require('fs');
-const path = require('path');
 const IMG_CACHE_DIR = path.join(__dirname, '.img_cache');
 if (!fs.existsSync(IMG_CACHE_DIR)) fs.mkdirSync(IMG_CACHE_DIR, { recursive: true });
 
