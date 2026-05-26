@@ -129,8 +129,27 @@ app.get('/api/leagues/:id/season', async (req, res) => {
   }
 });
 
-// ─────────────────────────────────────────────
-// HELPER: normaliza um evento BSD para o formato
+// DEBUG — ver campos exatos da BSD (remover depois)
+app.get('/api/debug/evento', async (req, res) => {
+  try {
+    const t = today();
+    const url = `https://sports.bzzoiro.com/api/events/?date_from=${t}&date_to=${t}&limit=1`;
+    const data = await fetch(url, { headers: { Authorization: `Token ${BSD_TOKEN}` } }).then(r => r.json());
+    const ev = (data.results||[])[0] || {};
+    res.json({
+      todos_campos: Object.keys(ev),
+      campos_time: Object.keys(ev).filter(k=>k.includes('team')||k.includes('home')||k.includes('away')||k.includes('_id')),
+      valores: {
+        home_team: ev.home_team,
+        home_team_id: ev.home_team_id,
+        away_team: ev.away_team,
+        away_team_id: ev.away_team_id,
+        home_id: ev.home_id,
+        away_id: ev.away_id,
+      }
+    });
+  } catch(e){ res.status(500).json({error: e.message}); }
+});
 // que o frontend espera (garante home_team_id etc.)
 // ─────────────────────────────────────────────
 function normEvento(ev) {
