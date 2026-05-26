@@ -130,6 +130,25 @@ app.get('/api/leagues/:id/season', async (req, res) => {
 });
 
 // ─────────────────────────────────────────────
+// HELPER: normaliza um evento BSD para o formato
+// que o frontend espera (garante home_team_id etc.)
+// ─────────────────────────────────────────────
+function normEvento(ev) {
+  if (!ev) return ev;
+  return {
+    ...ev,
+    // BSD v1 usa home_team_id; live usa home_id — normaliza tudo
+    home_team_id: ev.home_team_id || ev.home_id    || ev.home_team?.id    || null,
+    away_team_id: ev.away_team_id || ev.away_id    || ev.away_team?.id    || null,
+    home_team:    ev.home_team    || ev.home_name  || ev.home_team?.name  || '—',
+    away_team:    ev.away_team    || ev.away_name  || ev.away_team?.name  || '—',
+    league_name:  ev.league_name  || ev.league?.name || '—',
+    league_id:    ev.league_id    || ev.league?.id   || null,
+    status:       ev.status       || (ev.is_live ? 'inprogress' : 'ns'),
+  };
+}
+
+// ─────────────────────────────────────────────
 // JOGOS — hoje, amanhã, semana, ao vivo
 // ─────────────────────────────────────────────
 app.get('/api/jogos/hoje', async (req, res) => {
@@ -138,6 +157,7 @@ app.get('/api/jogos/hoje', async (req, res) => {
     const t = today();
     const url = `https://sports.bzzoiro.com/api/events/?date_from=${t}&date_to=${t}&tz=America/Sao_Paulo&limit=200${league_id ? `&league=${league_id}` : ''}`;
     const data = await fetch(url, { headers: { Authorization: `Token ${BSD_TOKEN}` } }).then(r => r.json());
+    data.results = (data.results || []).map(normEvento);
     res.json(data);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -148,6 +168,7 @@ app.get('/api/jogos/amanha', async (req, res) => {
     const t = dayOffset(1);
     const url = `https://sports.bzzoiro.com/api/events/?date_from=${t}&date_to=${t}&tz=America/Sao_Paulo&limit=200${league_id ? `&league=${league_id}` : ''}`;
     const data = await fetch(url, { headers: { Authorization: `Token ${BSD_TOKEN}` } }).then(r => r.json());
+    data.results = (data.results || []).map(normEvento);
     res.json(data);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -157,6 +178,7 @@ app.get('/api/jogos/semana', async (req, res) => {
     const { league_id } = req.query;
     const url = `https://sports.bzzoiro.com/api/events/?date_from=${today()}&date_to=${dayOffset(7)}&tz=America/Sao_Paulo&limit=200${league_id ? `&league=${league_id}` : ''}`;
     const data = await fetch(url, { headers: { Authorization: `Token ${BSD_TOKEN}` } }).then(r => r.json());
+    data.results = (data.results || []).map(normEvento);
     res.json(data);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -166,7 +188,10 @@ app.get('/api/jogos/ao-vivo', async (req, res) => {
     const { league_id } = req.query;
     const url = `https://sports.bzzoiro.com/api/live/?tz=America/Sao_Paulo${league_id ? `&league=${league_id}` : ''}`;
     const data = await fetch(url, { headers: { Authorization: `Token ${BSD_TOKEN}` } }).then(r => r.json());
-    res.json(data);
+    // /api/live/ retorna {events:[...]} ou {results:[...]}
+    const lista = data.events || data.results || [];
+    const normalized = lista.map(normEvento);
+    res.json({ results: normalized, count: normalized.length });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
