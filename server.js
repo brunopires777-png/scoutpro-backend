@@ -1,6 +1,7 @@
 const express = require('express');
 const cors = require('cors');
 const fetch = (...args) => import('node-fetch').then(({ default: f }) => f(...args));
+const path = require('path');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -9,6 +10,17 @@ const BASE_URL = 'https://sports.bzzoiro.com/api/v2';
 
 app.use(cors());
 app.use(express.json());
+
+// ─────────────────────────────────────────────
+// SERVE O FRONTEND — acesse via https://seu-app.onrender.com/
+// Isso resolve o problema do iOS que bloqueia fetch de arquivo local
+// ─────────────────────────────────────────────
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, 'index_green.html'));
+});
+app.get('/app', (req, res) => {
+  res.sendFile(path.join(__dirname, 'index_green.html'));
+});
 
 // ─────────────────────────────────────────────
 // HELPER: chamada autenticada para a BSD v2
