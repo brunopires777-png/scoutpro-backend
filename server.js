@@ -156,14 +156,22 @@ function normEvento(ev) {
   if (!ev) return ev;
   return {
     ...ev,
-    // BSD v1 usa home_team_id; live usa home_id — normaliza tudo
-    home_team_id: ev.home_team_id || ev.home_id    || ev.home_team?.id    || null,
-    away_team_id: ev.away_team_id || ev.away_id    || ev.away_team?.id    || null,
-    home_team:    ev.home_team    || ev.home_name  || ev.home_team?.name  || '—',
-    away_team:    ev.away_team    || ev.away_name  || ev.away_team?.name  || '—',
-    league_name:  ev.league_name  || ev.league?.name || '—',
+    // BSD retorna home_team_obj:{id,name} e away_team_obj:{id,name}
+    // NÃO existe home_team_id na raiz — está dentro do objeto
+    home_team_id: ev.home_team_id || ev.home_team_obj?.id || ev.home_id || null,
+    away_team_id: ev.away_team_id || ev.away_team_obj?.id || ev.away_id || null,
+    home_team:    ev.home_team    || ev.home_team_obj?.name || '—',
+    away_team:    ev.away_team    || ev.away_team_obj?.name || '—',
+    league_name:  ev.league_name  || ev.league?.name || ev.group_name || '—',
     league_id:    ev.league_id    || ev.league?.id   || null,
     status:       ev.status       || (ev.is_live ? 'inprogress' : 'ns'),
+    // xG disponível diretamente no evento!
+    home_xg:      ev.home_xg      || ev.actual_home_xg || null,
+    away_xg:      ev.away_xg      || ev.actual_away_xg || null,
+    // Odds já disponíveis na raiz
+    odds_home:    ev.odds_home,
+    odds_draw:    ev.odds_draw,
+    odds_away:    ev.odds_away,
   };
 }
 
