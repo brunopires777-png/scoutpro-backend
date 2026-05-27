@@ -852,71 +852,54 @@ app.get('/api/arbitros/proximos', async (req, res) => {
   try {
     const { league_id, name } = req.query;
 
-    // ESTRATÉGIA: buscar próximos eventos → extrair referee_id únicos
-    // → buscar dados de cada árbitro em /referees/{id}/
-    // Isso garante que o filtro por liga funciona corretamente
-    const evParams = {
-      date_from: today(),
-      date_to: dayOffset(7),
-      limit: 200,
-      tz: 'America/Sao_Paulo'
-    };
-    if (league_id) evParams.league = league_id;
+    // ESTRATÉGIA DUPLA:
+    // 1. Busca /referees/ diretamente (lista completa com stats)
+    // 2. Busca eventos próximos para cruzar jogos confirmados
+    const refParams = { limit: 200, min_matches: 1 };
+    if (league_id) refParams.id_da_liga = league_id;
+    if (name)      refParams.name       = name;
 
-    const evData = await bsd('/events/', evParams);
-    const eventos = evData.results || [];
+    const [refData, evData] = await Promise.allSettled([
+      bsd('/referees/', refParams),
+      bsd('/events/', {
+        date_from: today(),
+        date_to: dayOffset(7),
+        limit: 500,
+        tz: 'America/Sao_Paulo',
+        ...(league_id ? { league: league_id } : {})
+      })
+    ]);
 
-    // Mapa: referee_id → jogos do próximos 7 dias
-    const refMap = new Map();
+    const lista   = refData.status   === 'fulfilled' ? (refData.value.results   || []) : [];
+    const eventos = evData.status === 'fulfilled' ? (evData.value.results || []) : [];
+
+    // Mapa de jogos por referee_id
+    const jogosMap = new Map();
     for (const ev of eventos) {
-      const rId   = ev.referee_id   || null;
-      const rNome = ev.referee      || ev.referee_name || null;
-      if (!rId && !rNome) continue;
-      const key = rId ?? rNome;
-      if (!refMap.has(key)) refMap.set(key, { id: rId, name: rNome, jogos: [] });
-      refMap.get(key).jogos.push({
-        id:          ev.id,
-        home_team:   ev.home_team,
-        away_team:   ev.away_team,
-        event_date:  ev.event_date,
-        league_name: ev.league?.name || ev.league_name || '—',
-        league_id:   ev.league?.id   || ev.league_id   || null
+      const rId = ev.referee_id || null;
+      if (!rId) continue;
+      if (!jogosMap.has(rId)) jogosMap.set(rId, []);
+      jogosMap.get(rId).push({
+        id: ev.id,
+        home_team:  ev.home_team,
+        away_team:  ev.away_team,
+        event_date: ev.event_date,
+        league_name: ev.league?.name || ev.league_name || '—'
       });
     }
 
-    // Busca dados agregados de cada árbitro identificado
-    // (usa /referees/{id}/ se tiver id, senão usa /referees/?name=)
-    const arbitros = [];
-    for (const entry of refMap.values()) {
-      let detail = null;
-      try {
-        if (entry.id) {
-          detail = await bsd(`/referees/${entry.id}/`);
-        } else if (entry.name) {
-          const r = await bsd('/referees/', { name: entry.name, limit: 1 });
-          detail = (r.results || [])[0] || null;
-        }
-      } catch (_) {}
+    const arbitros = lista.map(r => ({
+      id:         r.id,
+      name:       r.name || '—',
+      country:    r.country || r.nationality_a3 || '—',
+      matches:    r.matches || 0,
+      avg_yellow: r.avg_yellow_per_match || null,
+      avg_red:    r.avg_red_per_match    || null,
+      avg_fouls:  r.avg_fouls_per_match  || null,
+      jogos:      jogosMap.get(r.id) || []
+    })).filter(r => r.name !== '—');
 
-      // Filtro por nome (busca local)
-      const nomeFiltro = (name || '').toLowerCase();
-      const nomeArb = (detail?.name || entry.name || '').toLowerCase();
-      if (nomeFiltro && !nomeArb.includes(nomeFiltro)) continue;
-
-      arbitros.push({
-        id:          detail?.id   || entry.id   || null,
-        name:        detail?.name || entry.name || '—',
-        country:     detail?.country || detail?.nationality_a3 || '—',
-        matches:     detail?.matches || 0,
-        avg_yellow:  detail?.avg_yellow_per_match || null,
-        avg_red:     detail?.avg_red_per_match    || null,
-        avg_fouls:   detail?.avg_fouls_per_match  || null,
-        jogos:       entry.jogos
-      });
-    }
-
-    // Ordena por nome
-    arbitros.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+    arbitros.sort((a, b) => (b.matches || 0) - (a.matches || 0));
     res.json({ arbitros, total: arbitros.length });
   } catch (e) {
     console.error('[arbitros/proximos]', e.message);
@@ -1035,9 +1018,40 @@ app.get('/api/times/:id/jogos', async (req, res) => {
 // ─────────────────────────────────────────────
 app.get('/api/jogadores', async (req, res) => {
   try {
-    const { team_id, position, name, nationality_code, limit = 50 } = req.query;
-    const data = await bsd('/players/', { team_id, position, name, nationality_code, limit });
-    res.json(data);
+    const { team_id, position, name, nationality_code, limit = 100, team_name } = req.query;
+    
+    // Busca principal por nome
+    const results = [];
+    const seen = new Set();
+    
+    // Tentativa 1: busca direta por nome
+    try {
+      const d = await bsd('/players/', { name, team_id, position, nationality_code, limit });
+      for (const p of (d.results || [])) {
+        if (!seen.has(p.id)) { seen.add(p.id); results.push(p); }
+      }
+    } catch (_) {}
+
+    // Tentativa 2: se forneceu nome do time (ex: "Pedro Flamengo"),
+    // busca o time e depois filtra jogadores do elenco
+    if (team_name && results.length < 5) {
+      try {
+        const tData = await bsd('/teams/', { name: team_name, limit: 3 });
+        for (const team of (tData.results || [])) {
+          const sq = await bsd(`/teams/${team.id}/players/`, { limit: 50 });
+          for (const p of (sq.results || [])) {
+            const pName = (p.name || '').toLowerCase();
+            const qName = (name || '').toLowerCase();
+            if (pName.includes(qName) && !seen.has(p.id)) {
+              seen.add(p.id);
+              results.push({ ...p, current_team: { id: team.id, name: team.name } });
+            }
+          }
+        }
+      } catch (_) {}
+    }
+
+    res.json({ results, count: results.length });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
