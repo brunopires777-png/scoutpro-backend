@@ -554,8 +554,7 @@ td.nd{color:#555;font-size:13px}
   </div>
   <div class="nav-tabs">
       <button class="tab active" onclick="goPage('scout',this)">Scout</button>
-      <button class="tab" onclick="goPage('jogos',this)">Jogos<span class="live-dot" id="live-dot"></span></button>
-      <button class="tab" onclick="goPage('predicoes',this)">Predições</button>
+      <button class="tab" onclick="goPage('jogos',this)">Jogos & Predições<span class="live-dot" id="live-dot"></span></button>
       <button class="tab" onclick="goPage('classificacao',this)">Tabela</button>
       <button class="tab" onclick="goPage('historico',this)">Histórico</button>
       <button class="tab" onclick="goPage('arbitros',this)">Árbitros</button>
@@ -749,7 +748,7 @@ td.nd{color:#555;font-size:13px}
         <button class="mtab" onclick="mtab('escalacao',this)">Escalação</button>
         <button class="mtab" onclick="mtab('jogadores',this)">Jogadores</button>
         <button class="mtab" onclick="mtab('odds',this)">Odds</button>
-        <button class="mtab" onclick="mtab('predicao',this)">Predição</button>
+        
       </div>
     </div>
     <div class="modal-body" style="padding:16px">
@@ -1179,22 +1178,31 @@ async function carregarJogos(periodo){
   const liga=document.getElementById('sel-liga-jogos')?.value||'';
   const el=document.getElementById('jogos-area');
   el.innerHTML=`<div class="loading"><div class="spinner-wrap"><div class="spinner"></div><div class="spinner-pct">0%</div></div><p>Carregando...</p></div>`;
+  // Passa a data local do browser para evitar diferença de fuso
+  const localDate=new Date().toLocaleDateString('en-CA'); // YYYY-MM-DD local
+  const qsep=liga?'&':'?';
   try{
-    const data=await apiFetch(`/api/jogos/${jogoPeriodo}${liga?`?league_id=${liga}`:''}`,null,0);
+    const url=jogoPeriodo==='hoje'
+      ?`/api/jogos/hoje?date=${localDate}${liga?'&league_id='+liga:''}`
+      :`/api/jogos/${jogoPeriodo}${liga?'?league_id='+liga:''}`;
+    const data=await apiFetch(url,null,0);
     const jogos=data.results||data.events||[];
     const temLive=jogoPeriodo==='ao-vivo'&&jogos.length>0;
     document.getElementById('live-dot').style.display=temLive?'block':'none';
     document.getElementById('live-pill').style.display=temLive?'inline-block':'none';
     if(!jogos.length){el.innerHTML=`<div class="empty"><div class="empty-icon">⚽</div><p>Nenhum jogo encontrado</p></div>`;return;}
     // DEBUG TEMPORÁRIO — remover após confirmar campos
-    if(jogos[0]) console.log('[jogos] sample:', JSON.stringify({
-      home_team: jogos[0].home_team,
-      home_team_id: jogos[0].home_team_id,
-      away_team: jogos[0].away_team,
-      away_team_id: jogos[0].away_team_id,
-      status: jogos[0].status,
-      keys: Object.keys(jogos[0]).filter(k=>k.includes('team')||k.includes('id')||k.includes('home')||k.includes('away'))
-    }));
+    if(jogos[0]){
+      const s=jogos[0];
+      const allKeys=Object.keys(s);
+      const teamKeys=allKeys.filter(k=>k.includes('team')||k.includes('id')||k.includes('home')||k.includes('away'));
+      // Mostra na tela por 10 segundos para diagnóstico
+      const dbg=document.createElement('div');
+      dbg.style.cssText='position:fixed;top:60px;left:10px;right:10px;background:#000;color:#0f0;font-size:10px;padding:8px;border-radius:8px;z-index:9999;border:1px solid #0f0;word-break:break-all';
+      dbg.innerHTML=`<b>BSD CAMPOS:</b><br>home_team_id: ${s.home_team_id}<br>away_team_id: ${s.away_team_id}<br>home_team: ${s.home_team}<br>todas: ${teamKeys.join(', ')}`;
+      document.body.appendChild(dbg);
+      setTimeout(()=>dbg.remove(),15000);
+    }
     el.innerHTML=`<div class="match-list">${jogos.map(j=>renderMatchCard(j)).join('')}</div>`;
   }catch(e){el.innerHTML=`<div class="err">❌ ${e.message}</div>`;}
 }
@@ -1411,6 +1419,42 @@ function renderMtResumo(d){
       </div>
     </div>`;
   }
+  // Predição IA inline — aparece abaixo do xG
+  if(d.predicao?.markets){
+    const m=d.predicao.markets,rp=d.predicao.recommendations||{};
+    const ph=m.match_result?.prob_home,pd2=m.match_result?.prob_draw,pa=m.match_result?.prob_away;
+    const recs=[];
+    if(rp.over_25)recs.push('Over 2.5');if(rp.btts)recs.push('BTTS');
+    if(rp.bet_favorite)recs.push(rp.favorite==='H'?'✓ '+ev?.home_team:'✓ '+ev?.away_team);
+    html+=`<div style="background:rgba(0,0,0,0.4);border:1px solid var(--border);border-radius:16px;padding:14px;margin-top:12px">
+      <div class="slabel" style="margin-bottom:10px">🤖 PREDIÇÃO IA</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:10px">
+        <div style="background:var(--cyan-dim);border:1px solid var(--border-bright);border-radius:12px;padding:10px;text-align:center">
+          <div style="font-family:'Bebas Neue',sans-serif;font-size:26px;color:var(--cyan)">${ph?ph.toFixed(0):'—'}%</div>
+          <div style="font-size:9px;color:var(--text2);margin-top:2px">CASA</div>
+        </div>
+        <div style="background:rgba(255,255,255,.04);border:1px solid var(--border);border-radius:12px;padding:10px;text-align:center">
+          <div style="font-family:'Bebas Neue',sans-serif;font-size:26px;color:#aaa">${pd2?pd2.toFixed(0):'—'}%</div>
+          <div style="font-size:9px;color:var(--text2);margin-top:2px">EMPATE</div>
+        </div>
+        <div style="background:rgba(255,145,0,.08);border:1px solid rgba(255,145,0,.2);border-radius:12px;padding:10px;text-align:center">
+          <div style="font-family:'Bebas Neue',sans-serif;font-size:26px;color:var(--orange)">${pa?pa.toFixed(0):'—'}%</div>
+          <div style="font-size:9px;color:var(--text2);margin-top:2px">FORA</div>
+        </div>
+      </div>
+      ${m.over_under?`<div style="display:flex;gap:8px;margin-bottom:10px">
+        <div style="flex:1;background:rgba(255,215,64,.06);border:1px solid rgba(255,215,64,.15);border-radius:10px;padding:8px;text-align:center">
+          <div style="font-family:'Bebas Neue',sans-serif;font-size:20px;color:var(--gold)">${m.over_under.prob_over_25?.toFixed(0)||'—'}%</div>
+          <div style="font-size:9px;color:#888">Over 2.5</div>
+        </div>
+        ${m.score?.most_likely?`<div style="flex:1;background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:10px;padding:8px;text-align:center">
+          <div style="font-family:'Bebas Neue',sans-serif;font-size:20px;color:#fff">${m.score.most_likely}</div>
+          <div style="font-size:9px;color:#888">Placar Provável</div>
+        </div>`:''}
+      </div>`:''}
+      ${recs.length?`<div style="display:flex;flex-wrap:wrap;gap:6px">${recs.map(rc=>`<span class="pill g">${rc}</span>`).join('')}</div>`:''}
+    </div>`;
+  }
   document.getElementById('mt-resumo').innerHTML=html;
 }
 
@@ -1452,6 +1496,7 @@ function renderMtJogadores(d){
       <div style="font-size:32px;margin-bottom:10px">📋</div>
       <p style="font-size:14px;color:#ccc;font-weight:600">Stats de jogadores não disponíveis</p>
       <p style="font-size:12px;color:#666;margin-top:6px">Este jogo pode não ter dados individuais</p>
+      <p style="font-size:11px;color:#444;margin-top:10px;line-height:1.6">Os dados relacionados aos Jogadores serão exibidos ao final da partida.<br>Existe a possibilidade de alguns jogos não fornecer seus dados.</p>
     </div>`;
     return;
   }
