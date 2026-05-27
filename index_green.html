@@ -589,7 +589,7 @@ td.nd{color:#555;font-size:13px}
         <button class="btn btn-ghost btn-sm" onclick="limparBuscaJogador()" title="Limpar resultado">✕ Limpar</button>
       </div>
       <div class="search-row">
-        <input class="finput" id="inp-player" placeholder="Ex: Pedro, Vinicius, Mbappe..." autocomplete="off"/>
+        <input class="finput" id="inp-player" placeholder="Ex: Pedro Flamengo, Ganso Fluminense..." autocomplete="off"/>
         <button class="btn btn-primary" id="btn-buscar-player" onclick="buscarJogador()">Buscar</button>
       </div>
       <div id="player-area"></div>
@@ -1453,6 +1453,12 @@ function renderMtResumo(d){
         </div>`:''}
       </div>`:''}
       ${recs.length?`<div style="display:flex;flex-wrap:wrap;gap:6px">${recs.map(rc=>`<span class="pill g">${rc}</span>`).join('')}</div>`:''}
+      <div style="margin-top:14px;padding-top:12px;border-top:1px solid rgba(255,255,255,0.06);background:rgba(255,200,0,0.04);border-radius:10px;padding:10px;margin-top:10px">
+        <div style="font-size:10px;font-weight:700;letter-spacing:0.1em;color:var(--gold);margin-bottom:6px">⚠️ AVISO IMPORTANTE</div>
+        <div style="font-size:11px;color:#888;line-height:1.65">
+          As predições cedidas são para ajudar o apostador a tomar decisões que corroboram suas análises, não são literalmente uma fonte de acerto seguro. A IA apenas faz previsões baseadas no estilo de jogo e desempenho dos últimos confrontos, juntamente com as prováveis escalações.
+        </div>
+      </div>
     </div>`;
   }
   document.getElementById('mt-resumo').innerHTML=html;
@@ -1956,37 +1962,65 @@ async function buscarJogador(){
   }, 150);
 
   try{
-    // Tenta endpoint de jogadores
+    // Detecta formato "Nome Time" ex: "Pedro Flamengo", "Ganso Fluminense"
+    // Estratégia: tenta busca completa, depois divide em nome + time
+    const tokens = q.trim().split(/\s+/);
     let players = [];
+
+    // Tentativa 1: busca direta pelo nome completo
     try{
-      const r = await fetch(`${API}/api/jogadores?name=${encodeURIComponent(q)}&limit=20`);
+      const r = await fetch(`${API}/api/jogadores?name=${encodeURIComponent(q)}&limit=100`);
       const d = await r.json();
       players = d.results || [];
     }catch(_){}
 
-    // Fallback: busca via player-stats de eventos recentes (pega jogadores que não aparecem na API direta)
-    if(players.length < 3){
+    // Tentativa 2: se poucos resultados, interpreta último(s) token(s) como time
+    if(players.length < 3 && tokens.length >= 2){
+      // Tenta: primeiro token = nome, resto = time
+      const nome = tokens[0];
+      const time = tokens.slice(1).join(' ');
       try{
-        // Busca eventos recentes e extrai jogadores pelo nome
-        const evR = await fetch(`${API}/api/teams?q=${encodeURIComponent(q.split(' ')[0])}&limit=5`);
-        // Na verdade busca via endpoint específico de jogadores com variações
-        const r2 = await fetch(`${API}/api/jogadores?name=${encodeURIComponent(q.split(' ')[0])}&limit=30`);
+        const r2 = await fetch(`${API}/api/jogadores?name=${encodeURIComponent(nome)}&team_name=${encodeURIComponent(time)}&limit=100`);
         const d2 = await r2.json();
-        const extra = (d2.results||[]).filter(p=>{
-          const nome = (p.name||'').toLowerCase();
-          return nome.includes(q.toLowerCase())||q.toLowerCase().split(' ').every(w=>nome.includes(w));
-        });
-        // Merge sem duplicatas
+        const extra = d2.results || [];
         const ids = new Set(players.map(p=>p.id));
-        extra.forEach(p=>{if(!ids.has(p.id)){ids.add(p.id);players.push(p);}});
+        extra.forEach(p=>{ if(!ids.has(p.id)){ ids.add(p.id); players.push(p); }});
+      }catch(_){}
+
+      // Também tenta dois primeiros tokens = nome, último = time
+      if(tokens.length >= 3){
+        const nome2 = tokens.slice(0,-1).join(' ');
+        const time2 = tokens[tokens.length-1];
+        try{
+          const r3 = await fetch(`${API}/api/jogadores?name=${encodeURIComponent(nome2)}&team_name=${encodeURIComponent(time2)}&limit=50`);
+          const d3 = await r3.json();
+          const ids = new Set(players.map(p=>p.id));
+          (d3.results||[]).forEach(p=>{ if(!ids.has(p.id)){ ids.add(p.id); players.push(p); }});
+        }catch(_){}
+      }
+    }
+
+    // Tentativa 3: busca só pelo primeiro nome com limite alto
+    if(players.length < 2){
+      try{
+        const r4 = await fetch(`${API}/api/jogadores?name=${encodeURIComponent(tokens[0])}&limit=100`);
+        const d4 = await r4.json();
+        const ids = new Set(players.map(p=>p.id));
+        (d4.results||[]).forEach(p=>{ if(!ids.has(p.id)){ ids.add(p.id); players.push(p); }});
       }catch(_){}
     }
 
     clearInterval(_pjIv);
-    const el=document.getElementById('pj-pct'); if(el) el.textContent='100%';
+    const elp=document.getElementById('pj-pct'); if(elp) elp.textContent='100%';
+    btn.disabled=false; btn.textContent='Buscar';
     
     if(!players.length){
-      area.innerHTML=`<div class="empty"><div class="empty-icon">👤</div><p>Nenhum jogador encontrado para "<strong>${esc(q)}</strong>"</p><p style="font-size:11px;margin-top:6px;color:#666">Tente o sobrenome ou nome completo</p></div>`;
+      area.innerHTML=`<div class="empty"><div class="empty-icon">👤</div>
+        <p>Nenhum jogador encontrado para "<strong>${esc(q)}</strong>"</p>
+        <p style="font-size:11px;margin-top:8px;color:#666;line-height:1.6">
+          Dica: tente com o nome do time.<br>
+          Ex: <strong>"Pedro Flamengo"</strong> ou <strong>"Ganso Fluminense"</strong>
+        </p></div>`;
     } else {
       area.innerHTML = `<div class="player-results">`+players.slice(0,20).map(p=>{
         const pos = p.position||'—';
@@ -2416,4 +2450,4 @@ document.addEventListener('keydown',e=>{if(e.key==='Enter'&&document.activeEleme
 
 
 </body>
-</html>
+      </html>
