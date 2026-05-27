@@ -180,8 +180,9 @@ function normEvento(ev) {
 // ─────────────────────────────────────────────
 app.get('/api/jogos/hoje', async (req, res) => {
   try {
-    const { league_id } = req.query;
-    const t = today();
+    const { league_id, date } = req.query;
+    // Usa a data passada pelo frontend (horário local do usuário) ou today() como fallback
+    const t = date || today();
     const url = `https://sports.bzzoiro.com/api/events/?date_from=${t}&date_to=${t}&tz=America/Sao_Paulo&limit=200${league_id ? `&league=${league_id}` : ''}`;
     const data = await fetch(url, { headers: { Authorization: `Token ${BSD_TOKEN}` } }).then(r => r.json());
     data.results = (data.results || []).map(normEvento);
