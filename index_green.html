@@ -980,41 +980,62 @@ async function buscarTime(){
 async function selecionarTime(id,name,logo){
   selTeam={id,name,logo};
   document.getElementById('step1').style.display='none';
-  // Esconde destaques ao navegar para o elenco
   const destBox=document.getElementById('dest-box');
   if(destBox) destBox.style.display='none';
   document.getElementById('step2').style.display='block';
   document.getElementById('step3').innerHTML='';
   document.getElementById('lbl-team').textContent=name;
   document.getElementById('lbl-sub').textContent='Selecione o jogador';
-  document.getElementById('squad-area').innerHTML=`<div class="loading"><div class="spinner-wrap"><div class="spinner"></div><div class="spinner-pct">0%</div></div><p>Carregando elenco de <strong>${name}</strong>...<br><small style="color:var(--text3)">ID: ${id}</small></p></div>`;
-  // Limpa cache do squad para forçar busca fresca
+  document.getElementById('squad-area').innerHTML=`<div class="loading"><div class="spinner-wrap"><div class="spinner"></div><div class="spinner-pct">0%</div></div><p>Carregando elenco de <strong>${name}</strong>...</p></div>`;
   try{localStorage.removeItem('sp4_squad_'+id);}catch(e){}
   try{
-    const data=await apiFetch(`/api/squad/${id}`,`squad_${id}`,86400000);
+    const data=await apiFetch(`/api/squad/${id}`,`squad_${id}`,3600000);
     const players=data.players||[];
+    const lineupStatus=data.lineup_status||null;
     if(!players.length){document.getElementById('squad-area').innerHTML=`<div class="empty"><div class="empty-icon">👤</div><p>Elenco não encontrado.</p></div>`;return;}
     const grupos={Goleiros:[],Defensores:[],Meias:[],Atacantes:[],Outros:[]};
     players.forEach(p=>{(grupos[grupoPos(p.position)]||grupos.Outros).push(p);});
     let html='';
+
+    // Badge de escalação se disponível
+    if(lineupStatus==='confirmed'||lineupStatus==='predicted'){
+      html+=`<div style="text-align:center;margin-bottom:12px">
+        <span class="pill ${lineupStatus==='confirmed'?'g':''}" style="${lineupStatus==='predicted'?'background:rgba(255,215,64,.15);border-color:rgba(255,215,64,.4);color:#ffd740':''}">
+          ${lineupStatus==='confirmed'?'🟢 Escalação Confirmada':'🟡 Escalação Predita por IA'}
+        </span>
+      </div>`;
+    }
+
     Object.entries(grupos).forEach(([grp,pls])=>{
       if(!pls.length)return;
       html+=`<div class="pos-group"><div class="pos-label">${posEmoji(grp)} ${grp}</div>
-        <div class="player-grid">${pls.map(p=>`
+        <div class="player-grid">${pls.map(p=>{
+          // Cor do círculo baseada no lineup_status individual do jogador
+          const ls=p.lineup_status;
+          const circleColor = ls==='confirmed' ? '#39ff14'
+                            : ls==='predicted' ? '#ffd740'
+                            : 'transparent';
+          const circleBorder = ls ? 'rgba(255,255,255,0.2)' : 'rgba(255,255,255,0.3)';
+          const circleGlow   = ls==='confirmed' ? '0 0 6px #39ff14'
+                             : ls==='predicted' ? '0 0 6px #ffd740' : 'none';
+          return `
           <div class="player-card" onclick="verStats(${p.id},'${esc(p.name)}','${esc(p.photo||'')}','${esc(p.position||'')}')">
             <div style="position:relative;display:inline-block;margin-bottom:4px">
               ${p.photo
                 ?`<img src="${p.photo}" style="width:48px;height:48px;border-radius:50%;object-fit:cover;background:var(--bg4);display:block;border:2px solid var(--border)" onerror="this.style.display='none'">`
                 :`<div style="width:48px;height:48px;border-radius:50%;background:var(--bg4);border:2px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:18px">👤</div>`}
-              <div style="position:absolute;bottom:1px;right:1px;width:13px;height:13px;border-radius:50%;border:2px solid rgba(255,255,255,0.4);background:transparent"></div>
+              <div style="position:absolute;bottom:1px;right:1px;width:13px;height:13px;border-radius:50%;border:2px solid ${circleBorder};background:${circleColor};box-shadow:${circleGlow}"></div>
             </div>
             <div class="pc-name">${p.name}</div><div class="pc-pos">${p.position||'—'}</div>
-          </div>`).join('')}</div></div>`;
+          </div>`;
+        }).join('')}</div></div>`;
     });
+
     html+=`<div style="margin-top:12px;padding:10px;background:rgba(0,0,0,0.3);border-radius:12px;border:1px solid var(--border);font-size:11px;color:var(--text3);line-height:1.8">
       <strong style="color:var(--text2)">Nota</strong><br>
       🟡 Escalação predita por IA.<br>
-      🟢 Escalação confirmada.
+      🟢 Escalação confirmada.<br>
+      <span style="opacity:.6">Círculo vazio = não relacionado para o próximo jogo.</span>
     </div>`;
     document.getElementById('squad-area').innerHTML=html;
   }catch(e){document.getElementById('squad-area').innerHTML=`<div class="err">Erro: ${e.message}</div>`;}
@@ -1412,25 +1433,25 @@ function renderMtResumo(d){
       <div class="inc"><span class="inc-min">${g.minute}'</span><span class="inc-ico">⚽</span><span class="inc-txt">${g.player||g.player_name||'—'}</span><span class="inc-side">${g.is_home?ev.home_team:ev.away_team}</span></div>`).join('')}</div>`;
   }
   const sh=d.stats?.stats?.home,sa=d.stats?.stats?.away;
-  // xG: tenta stats aninhado, depois campo direto do evento, depois prediction
-  // XG: ordem de prioridade — stats do jogo > campo direto do evento (home_xg) > predição ML
   const xgH = sh?.xg?.actual ?? sh?.xg?.value ?? sh?.xg
-    ?? ev?.home_xg ?? ev?.xg_home
+    ?? ev?.home_xg ?? ev?.xg_home ?? ev?.actual_home_xg
     ?? d.predicao?.markets?.expected_goals?.home
     ?? d.predicao?.expected_goals?.home ?? null;
   const xgA = sa?.xg?.actual ?? sa?.xg?.value ?? sa?.xg
-    ?? ev?.away_xg ?? ev?.xg_away
+    ?? ev?.away_xg ?? ev?.xg_away ?? ev?.actual_away_xg
     ?? d.predicao?.markets?.expected_goals?.away
     ?? d.predicao?.expected_goals?.away ?? null;
-  if(xgH!=null || xgA!=null){
+  // Sempre mostra xG — se jogo não iniciou, mostra xG predito
+  const xgLabel = (ev?.status==='finished'||ev?.status==='inprogress') ? 'xG' : 'xG PREDITO';
+  {
     const fmtXg = v => (v!=null && !isNaN(v)) ? Number(v).toFixed(2) : '—';
     html+=`<div style="display:flex;gap:8px;margin-top:12px">
       <div style="flex:1;background:rgba(16,16,16,0.95);border:1px solid rgba(50,50,50,0.4);border-radius:10px;padding:14px;text-align:center">
-        <div class="slabel" style="color:#999;margin-bottom:6px">xG CASA</div>
+        <div class="slabel" style="color:#999;margin-bottom:6px">${xgLabel} CASA</div>
         <div style="font-family:'Bebas Neue',sans-serif;font-size:32px;color:var(--cyan)">${fmtXg(xgH)}</div>
       </div>
       <div style="flex:1;background:rgba(16,16,16,0.95);border:1px solid rgba(50,50,50,0.4);border-radius:10px;padding:14px;text-align:center">
-        <div class="slabel" style="color:#999;margin-bottom:6px">xG FORA</div>
+        <div class="slabel" style="color:#999;margin-bottom:6px">${xgLabel} FORA</div>
         <div style="font-family:'Bebas Neue',sans-serif;font-size:32px;color:var(--orange)">${fmtXg(xgA)}</div>
       </div>
     </div>`;
@@ -2489,4 +2510,4 @@ document.addEventListener('keydown',e=>{if(e.key==='Enter'&&document.activeEleme
 
 
 </body>
-  </html>
+                                                                                                     </html>
