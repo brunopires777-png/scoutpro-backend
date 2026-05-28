@@ -746,8 +746,8 @@ td.nd{color:#555;font-size:13px}
         <button class="mtab active" onclick="mtab('resumo',this)">Resumo</button>
         <button class="mtab" onclick="mtab('stats',this)">Stats</button>
         <button class="mtab" onclick="mtab('escalacao',this)">Escalação</button>
-        <button class="mtab" onclick="mtab('odds',this)">Odds</button>
         <button class="mtab" onclick="mtab('jogadores',this)">Jogadores</button>
+        <button class="mtab" onclick="mtab('odds',this)">Odds</button>
         
       </div>
     </div>
@@ -818,6 +818,8 @@ async function checkStatus(){
 function updateCache(){const ci=document.getElementById('cache-info');if(ci)ci.innerHTML=`<span class="cache-pill">💾 ${DB.count()} em cache</span>`;}
 
 let ligasCache=[],jogoAtivo=null,jogoPeriodo='hoje',predPeriodo='hoje';
+let _modalLiveIv=null;
+function pararModalLive(){ if(_modalLiveIv){clearInterval(_modalLiveIv);_modalLiveIv=null;} }
 let jogosCarregados=false,predCarregadas=false;
 
 function goPage(name,el){
@@ -1004,7 +1006,7 @@ async function selecionarTime(id,name,logo){
               ${p.photo
                 ?`<img src="${p.photo}" style="width:48px;height:48px;border-radius:50%;object-fit:cover;background:var(--bg4);display:block;border:2px solid var(--border)" onerror="this.style.display='none'">`
                 :`<div style="width:48px;height:48px;border-radius:50%;background:var(--bg4);border:2px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:18px">👤</div>`}
-              <div style="position:absolute;bottom:1px;right:1px;width:13px;height:13px;border-radius:50%;border:2px solid var(--bg-card);background:${(p.availability==='available'||p.confirmed)?'#39ff14':'#ffd740'};box-shadow:0 0 5px ${(p.availability==='available'||p.confirmed)?'#39ff14':'#ffd740'}"></div>
+              <div style="position:absolute;bottom:1px;right:1px;width:13px;height:13px;border-radius:50%;border:2px solid rgba(255,255,255,0.4);background:transparent"></div>
             </div>
             <div class="pc-name">${p.name}</div><div class="pc-pos">${p.position||'—'}</div>
           </div>`).join('')}</div></div>`;
@@ -1511,7 +1513,7 @@ function renderMtEscalacao(d){
         <span class="lu-num">${p.jersey_number||''}</span>
         <span class="lu-pos pos-${p.position}">${p.position}</span>
         <span class="lu-name">${p.short_name||p.name}</span>
-        <span style="width:8px;height:8px;border-radius:50%;background:${status==='confirmed'?'#39ff14':'#ffd740'};flex-shrink:0;margin-left:auto;box-shadow:0 0 6px ${status==='confirmed'?'#39ff14':'#ffd740'}"></span>
+        <span title="${status==='confirmed'?'Confirmado':'Predito por IA'}" style="width:9px;height:9px;border-radius:50%;background:${status==='confirmed'?'#39ff14':'#ffd740'};flex-shrink:0;margin-left:auto;box-shadow:0 0 6px ${status==='confirmed'?'#39ff14':'#ffd740'}"></span>
       </div>`).join('')}
       ${subs.length?`<div style="margin-top:7px;padding-top:7px;border-top:1px solid var(--border)"><div class="slabel">BANCO</div>${subs.slice(0,5).map(p=>`<div class="lu-player" style="opacity:.6">
         <span class="lu-num">${p.jersey_number||''}</span><span class="lu-pos pos-${p.position}">${p.position}</span><span class="lu-name">${p.short_name||p.name}</span>
@@ -1527,30 +1529,7 @@ function renderMtEscalacao(d){
       🟢 Escalação confirmada.
     </div>
   </div>
-  <div style="margin-top:14px;border-top:1px solid var(--border);padding-top:12px">
-    <div style="font-size:10px;font-weight:700;letter-spacing:.1em;color:var(--text3);margin-bottom:10px">🔍 SCOUT RÁPIDO</div>
-    <div style="display:flex;gap:8px;margin-bottom:8px">
-      <input class="finput" id="esc-team-inp" placeholder="Buscar Time..." style="flex:1;font-size:12px;padding:9px 12px"/>
-      <button class="btn btn-primary btn-sm" onclick="buscarTimeModal()">Ir</button>
-    </div>
-    <div style="display:flex;gap:8px">
-      <input class="finput" id="esc-player-inp" placeholder="Ex: Pedro Flamengo" style="flex:1;font-size:12px;padding:9px 12px"/>
-      <button class="btn btn-primary btn-sm" onclick="buscarJogadorModal()">Ir</button>
-    </div>
-  </div>`;
-}
-
-function buscarTimeModal(){
-  const q=document.getElementById('esc-team-inp')?.value?.trim();
-  if(!q)return;
-  fecharModal();
-  setTimeout(()=>{ document.getElementById('inp-team').value=q; buscarTime(); },300);
-}
-function buscarJogadorModal(){
-  const q=document.getElementById('esc-player-inp')?.value?.trim();
-  if(!q)return;
-  fecharModal();
-  setTimeout(()=>{ document.getElementById('inp-player').value=q; buscarJogador(); },300);
+  `;
 }
 
 function renderMtJogadores(d){
