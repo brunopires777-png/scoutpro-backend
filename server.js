@@ -615,7 +615,48 @@ app.get('/api/squad/:id', async (req, res) => {
       console.log(`SQUAD final via player-stats: ${players.length} jogadores`);
     }
 
-    res.json({ players });
+    // Busca próximo jogo do time para pegar escalação predita/confirmada
+    let lineupStatus = null;
+    let lineupPlayerIds = new Set();
+    let confirmedPlayerIds = new Set();
+    try {
+      const nextEv = await fetch(
+        `https://sports.bzzoiro.com/api/events/?team=${teamId}&date_from=${today()}&date_to=${dayOffset(7)}&limit=1&ordering=event_date`,
+        { headers: { Authorization: `Token ${BSD_TOKEN}` } }
+      ).then(r => r.json());
+      const nextMatch = (nextEv.results||[])[0];
+      if (nextMatch) {
+        const lu = await fetch(
+          `https://sports.bzzoiro.com/api/events/${nextMatch.id}/lineups/`,
+          { headers: { Authorization: `Token ${BSD_TOKEN}` } }
+        ).then(r => r.json());
+        lineupStatus = lu.lineup_status || null;
+        // Determina qual lado é o time buscado
+        const isHome = String(nextMatch.home_team_id) === String(teamId) ||
+                       String(nextMatch.home_team_obj?.id) === String(teamId);
+        const side = isHome ? lu.lineups?.home : lu.lineups?.away;
+        if (side) {
+          const allPlayers = [...(side.players||[]), ...(side.substitutes||[])];
+          allPlayers.forEach(p => {
+            const pid = String(p.player_id || p.id || '');
+            if (pid) {
+              lineupPlayerIds.add(pid);
+              if (lineupStatus === 'confirmed') confirmedPlayerIds.add(pid);
+            }
+          });
+        }
+      }
+    } catch(_) {}
+
+    // Adiciona status de escalação a cada jogador
+    players = players.map(p => ({
+      ...p,
+      lineup_status: confirmedPlayerIds.has(String(p.id)) ? 'confirmed'
+                   : lineupPlayerIds.has(String(p.id))    ? 'predicted'
+                   : null
+    }));
+
+    res.json({ players, lineup_status: lineupStatus });
   } catch (e) {
     console.log('SQUAD error:', e.message);
     res.status(500).json({ error: e.message });
