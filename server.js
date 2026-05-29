@@ -14,14 +14,19 @@ const BASE_URL = 'https://sports.bzzoiro.com/api/v2';
 app.use(cors());
 app.use(express.json());
 
-// Serve os arquivos estáticos da pasta raiz
+// Serve todos os arquivos da pasta raiz (CSS, JS, Imagens)
 app.use(express.static(path.join(__dirname)));
 
 // ─────────────────────────────────────────────
-// SERVE O FRONTEND UNIFICADO
+// ROTA PRINCIPAL (Onde estava o erro)
 // ─────────────────────────────────────────────
 app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'index.html'));
+  const indexPath = path.join(__dirname, 'index.html');
+  if (fs.existsSync(indexPath)) {
+    res.sendFile(indexPath);
+  } else {
+    res.status(404).send("Erro: Arquivo index.html não encontrado na raiz do projeto.");
+  }
 });
 
 app.get('/app', (req, res) => {
@@ -52,10 +57,9 @@ async function bsd(path, params = {}) {
 }
 
 // ─────────────────────────────────────────────
-// API ENDPOINTS
+// API ENDPOINTS (Preservando sua lógica original)
 // ─────────────────────────────────────────────
 
-// Busca (Jogadores / Times)
 app.get('/api/search', async (req, res) => {
   try {
     const { q, type } = req.query; 
@@ -67,7 +71,6 @@ app.get('/api/search', async (req, res) => {
   }
 });
 
-// Partidas (Events)
 app.get('/api/matches', async (req, res) => {
   try {
     const { date_from, date_to, league_id, status } = req.query;
@@ -87,7 +90,6 @@ app.get('/api/match/:id', async (req, res) => {
   }
 });
 
-// Jogadores (Detalhes e Stats)
 app.get('/api/player/:id', async (req, res) => {
   try {
     const data = await bsd(`/players/${req.params.id}/`);
@@ -106,7 +108,6 @@ app.get('/api/player/:id/stats', async (req, res) => {
   }
 });
 
-// Escalações (Lineups)
 app.get('/api/lineups/:event_id', async (req, res) => {
   try {
     const data = await bsd('/lineups/', { event_id: req.params.event_id });
@@ -116,7 +117,6 @@ app.get('/api/lineups/:event_id', async (req, res) => {
   }
 });
 
-// Classificação (Standings)
 app.get('/api/standings', async (req, res) => {
   try {
     const { league_id, season_id } = req.query;
@@ -127,7 +127,6 @@ app.get('/api/standings', async (req, res) => {
   }
 });
 
-// Odds
 app.get('/api/odds', async (req, res) => {
   try {
     const { event_id, league_id, market, bookmaker_slug, limit = 50 } = req.query;
@@ -169,5 +168,5 @@ app.get('/img/manager/:id', (req, res) => serveImg('manager', req.params.id, res
 app.get('/img/venue/:id',   (req, res) => serveImg('venue',   req.params.id, res));
 
 app.listen(PORT, () => {
-  console.log(`🚀 SCOUT PRO ATIVO NA PORTA ${PORT}`);
+  console.log(`🚀 SCOUT PRO ENGINE ATIVO NA PORTA ${PORT}`);
 });
