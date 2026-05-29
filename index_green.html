@@ -989,7 +989,7 @@ async function selecionarTime(id,name,logo){
   document.getElementById('squad-area').innerHTML=`<div class="loading"><div class="spinner-wrap"><div class="spinner"></div><div class="spinner-pct">0%</div></div><p>Carregando elenco de <strong>${name}</strong>...</p></div>`;
   try{localStorage.removeItem('sp4_squad_'+id);}catch(e){}
   try{
-    const data=await apiFetch(`/api/squad/${id}`,`squad_${id}`,3600000);
+    const data=await apiFetch(`/api/squad/${id}`,`squad_${id}`,1800000); // 30min cache para ter lineup fresco
     const players=data.players||[];
     const lineupStatus=data.lineup_status||null;
     if(!players.length){document.getElementById('squad-area').innerHTML=`<div class="empty"><div class="empty-icon">👤</div><p>Elenco não encontrado.</p></div>`;return;}
@@ -1230,7 +1230,7 @@ async function carregarJogos(periodo){
 }
 
 function renderMatchCard(j){
-  const live     = j.status==='inprogress'||j.status==='live'||j.is_live||(j.current_minute!=null&&j.status!=='finished');
+  const live     = ['inprogress','live','ongoing','in_progress','1h','2h','ht'].includes((j.status||'').toLowerCase())||j.is_live===true||(j.current_minute>0&&j.status!=='finished'&&j.status!=='ft');
   const finished = j.status==='finished'||j.status==='ft'||j.period==='FT';
   const temPlacar= j.home_score!=null && j.away_score!=null;
   const liga     = j.league?.name||j.league_name||ligaNome(extrairLigaId(j));
@@ -1353,8 +1353,12 @@ async function abrirJogo(id){
 
 function preencherModalHeader(d){
   const ev=d.evento; if(!ev) return;
-  const live     = ev.status==='inprogress'||ev.is_live;
-  const finished = ev.status==='finished'||ev.period==='FT';
+  // Detecta ao vivo por múltiplos sinais — a BSD v2 usa vários status diferentes
+  const liveStatuses = ['inprogress','live','ongoing','in_progress','1h','2h','ht'];
+  const live = liveStatuses.includes((ev.status||'').toLowerCase())
+    || ev.is_live===true
+    || (ev.current_minute!=null && ev.current_minute>0 && ev.status!=='finished');
+  const finished = ev.status==='finished'||ev.status==='ft'||ev.period==='FT'||ev.status==='complete';
 
   // Liga e rodada
   document.getElementById('modal-liga').textContent = ev.league_name||ligaNome(ev.league_id)||'—';
@@ -1464,39 +1468,61 @@ function renderMtResumo(d){
     if(rp.over_25)recs.push('Over 2.5');if(rp.btts)recs.push('BTTS');
     if(rp.bet_favorite)recs.push(rp.favorite==='H'?'✓ '+ev?.home_team:'✓ '+ev?.away_team);
     const confianca=d.predicao?.confidence||d.predicao?.confidence_score||null;
+    const confPct = confianca!=null?(typeof confianca==='number'?(confianca<=1?(confianca*100).toFixed(0):confianca.toFixed(0)):confianca):null;
+    // xG predito pela IA
+    const xgPredH = m.expected_goals?.home ?? m.xg?.home ?? null;
+    const xgPredA = m.expected_goals?.away ?? m.xg?.away ?? null;
+    // BTTS
+    const bttsPct = m.btts?.prob_yes ?? m.both_teams_score?.prob_yes ?? null;
+
     html+=`<div style="background:rgba(0,0,0,0.4);border:1px solid var(--border);border-radius:16px;padding:14px;margin-top:12px">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
         <div class="slabel" style="margin-bottom:0">🤖 PREDIÇÃO IA</div>
-        ${confianca!=null?`<div style="background:var(--cyan-dim);border:1px solid var(--border-bright);border-radius:10px;padding:4px 12px;text-align:center">
-          <div style="font-family:'Bebas Neue',sans-serif;font-size:20px;color:var(--cyan);line-height:1">${typeof confianca==='number'?(confianca<=1?(confianca*100).toFixed(0):confianca.toFixed(0)):confianca}%</div>
+        ${confPct!=null?`<div style="background:var(--cyan-dim);border:1px solid var(--border-bright);border-radius:10px;padding:4px 12px;text-align:center">
+          <div style="font-family:'Bebas Neue',sans-serif;font-size:20px;color:var(--cyan);line-height:1">${confPct}%</div>
           <div style="font-size:8px;color:var(--text3);letter-spacing:.08em">CONFIANÇA</div>
         </div>`:''}
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:10px">
         <div style="background:var(--cyan-dim);border:1px solid var(--border-bright);border-radius:12px;padding:10px;text-align:center">
-          <div style="font-family:'Bebas Neue',sans-serif;font-size:26px;color:var(--cyan)">${ph?ph.toFixed(0):'—'}%</div>
-          <div style="font-size:9px;color:var(--text2);margin-top:2px">CASA</div>
+          <div style="font-size:9px;color:var(--text3);letter-spacing:.08em;margin-bottom:4px">CASA</div>
+          <div style="font-family:'Bebas Neue',sans-serif;font-size:30px;color:var(--cyan)">${ph?ph.toFixed(1):'—'}%</div>
         </div>
         <div style="background:rgba(255,255,255,.04);border:1px solid var(--border);border-radius:12px;padding:10px;text-align:center">
-          <div style="font-family:'Bebas Neue',sans-serif;font-size:26px;color:#aaa">${pd2?pd2.toFixed(0):'—'}%</div>
-          <div style="font-size:9px;color:var(--text2);margin-top:2px">EMPATE</div>
+          <div style="font-size:9px;color:var(--text3);letter-spacing:.08em;margin-bottom:4px">EMPATE</div>
+          <div style="font-family:'Bebas Neue',sans-serif;font-size:30px;color:#aaa">${pd2?pd2.toFixed(1):'—'}%</div>
         </div>
         <div style="background:rgba(255,145,0,.08);border:1px solid rgba(255,145,0,.2);border-radius:12px;padding:10px;text-align:center">
-          <div style="font-family:'Bebas Neue',sans-serif;font-size:26px;color:var(--orange)">${pa?pa.toFixed(0):'—'}%</div>
-          <div style="font-size:9px;color:var(--text2);margin-top:2px">FORA</div>
+          <div style="font-size:9px;color:var(--text3);letter-spacing:.08em;margin-bottom:4px">FORA</div>
+          <div style="font-family:'Bebas Neue',sans-serif;font-size:30px;color:var(--orange)">${pa?pa.toFixed(1):'—'}%</div>
         </div>
       </div>
-      ${m.over_under?`<div style="display:flex;gap:8px;margin-bottom:10px">
-        <div style="flex:1;background:rgba(255,215,64,.06);border:1px solid rgba(255,215,64,.15);border-radius:10px;padding:8px;text-align:center">
-          <div style="font-family:'Bebas Neue',sans-serif;font-size:20px;color:var(--gold)">${m.over_under.prob_over_25?.toFixed(0)||'—'}%</div>
-          <div style="font-size:9px;color:#888">Over 2.5</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">
+        ${xgPredH!=null||xgPredA!=null?`
+        <div style="background:rgba(16,16,16,.9);border:1px solid var(--border);border-radius:10px;padding:10px;text-align:center">
+          <div style="font-size:9px;color:var(--text3);letter-spacing:.08em;margin-bottom:4px">xG CASA</div>
+          <div style="font-family:'Bebas Neue',sans-serif;font-size:24px;color:var(--cyan)">${xgPredH!=null?Number(xgPredH).toFixed(2):'—'}</div>
         </div>
-        ${m.score?.most_likely?`<div style="flex:1;background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:10px;padding:8px;text-align:center">
-          <div style="font-family:'Bebas Neue',sans-serif;font-size:20px;color:#fff">${m.score.most_likely}</div>
-          <div style="font-size:9px;color:#888">Placar Provável</div>
+        <div style="background:rgba(16,16,16,.9);border:1px solid var(--border);border-radius:10px;padding:10px;text-align:center">
+          <div style="font-size:9px;color:var(--text3);letter-spacing:.08em;margin-bottom:4px">xG FORA</div>
+          <div style="font-family:'Bebas Neue',sans-serif;font-size:24px;color:var(--orange)">${xgPredA!=null?Number(xgPredA).toFixed(2):'—'}</div>
         </div>`:''}
+        ${m.over_under!=null?`
+        <div style="background:rgba(255,215,64,.06);border:1px solid rgba(255,215,64,.15);border-radius:10px;padding:10px;text-align:center">
+          <div style="font-size:9px;color:var(--text3);letter-spacing:.08em;margin-bottom:4px">OVER 2.5</div>
+          <div style="font-family:'Bebas Neue',sans-serif;font-size:24px;color:var(--gold)">${m.over_under.prob_over_25!=null?m.over_under.prob_over_25.toFixed(1)+'%':'—'}</div>
+        </div>`:''}
+        ${bttsPct!=null?`
+        <div style="background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:10px;padding:10px;text-align:center">
+          <div style="font-size:9px;color:var(--text3);letter-spacing:.08em;margin-bottom:4px">BTTS</div>
+          <div style="font-family:'Bebas Neue',sans-serif;font-size:24px;color:#ccc">${Number(bttsPct).toFixed(1)}%</div>
+        </div>`:''}
+      </div>
+      ${m.score?.most_likely?`<div style="display:flex;gap:8px;margin-bottom:10px;align-items:center;justify-content:center">
+        <span style="font-size:11px;color:var(--text3)">Placar mais provável:</span>
+        <span style="font-family:'Bebas Neue',sans-serif;font-size:20px;color:#fff;background:rgba(0,0,0,.5);padding:4px 14px;border-radius:8px;border:1px solid var(--border)">${m.score.most_likely}</span>
       </div>`:''}
-      ${recs.length?`<div style="display:flex;flex-wrap:wrap;gap:6px">${recs.map(rc=>`<span class="pill g">${rc}</span>`).join('')}</div>`:''}
+      ${recs.length?`<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px">${recs.map(rc=>`<span class="pill g">${rc}</span>`).join('')}</div>`:''}
       <div style="margin-top:14px;padding-top:12px;border-top:1px solid rgba(255,255,255,0.06);background:rgba(255,200,0,0.04);border-radius:10px;padding:10px;margin-top:10px">
         <div style="font-size:10px;font-weight:700;letter-spacing:0.1em;color:var(--gold);margin-bottom:6px">⚠️ AVISO IMPORTANTE</div>
         <div style="font-size:11px;color:#888;line-height:1.65">
@@ -2510,4 +2536,4 @@ document.addEventListener('keydown',e=>{if(e.key==='Enter'&&document.activeEleme
 
 
 </body>
-                                                                                                     </html>
+                                                                          </html>
