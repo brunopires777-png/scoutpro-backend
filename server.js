@@ -637,13 +637,31 @@ app.get('/api/squad/:id', async (req, res) => {
         const side = isHome ? lu.lineups?.home : lu.lineups?.away;
         if (side) {
           const allPlayers = [...(side.players||[]), ...(side.substitutes||[])];
+          // Coleta IDs E nomes para fallback
+          const lineupNames = new Set();
           allPlayers.forEach(p => {
-            const pid = String(p.player_id || p.id || '');
-            if (pid) {
+            // BSD pode usar player_id, id, ou player.id
+            const pid = String(p.player_id || p.player?.id || p.id || '');
+            const pname = (p.name || p.player?.name || p.short_name || '').toLowerCase().trim();
+            if (pid && pid !== 'undefined') {
               lineupPlayerIds.add(pid);
               if (lineupStatus === 'confirmed') confirmedPlayerIds.add(pid);
             }
+            if (pname) lineupNames.add(pname);
           });
+
+          // Fallback: marcar pelo nome se IDs não bateram
+          if (lineupPlayerIds.size === 0 && lineupNames.size > 0) {
+            players.forEach(p => {
+              const pname = (p.name||'').toLowerCase().trim();
+              const shortName = pname.split(' ').slice(0,2).join(' ');
+              if (lineupNames.has(pname) || lineupNames.has(shortName) ||
+                  [...lineupNames].some(ln => ln.includes(shortName) || shortName.includes(ln.split(' ')[0]))) {
+                lineupPlayerIds.add(String(p.id));
+                if (lineupStatus === 'confirmed') confirmedPlayerIds.add(String(p.id));
+              }
+            });
+          }
         }
       }
     } catch(_) {}
