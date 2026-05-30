@@ -698,14 +698,41 @@ app.get('/api/squad/:id', async (req, res) => {
       const playersSeen = new Map();
       await Promise.all(teamEvents.map(async ev => {
         try {
+          // Descobre qual lado do evento é o nosso time (home ou away)
+          const evHomeId = String(ev.home_team_id || ev.home_team_obj?.id || '');
+          const evAwayId = String(ev.away_team_id || ev.away_team_obj?.id || '');
+          const evSide   = evHomeId === teamId ? 'home' : 'away'; // qual lado é nosso time
+
           const psData = await fetch(
             `https://sports.bzzoiro.com/api/player-stats/?event=${ev.id}&limit=50`,
             { headers: { Authorization: `Token ${BSD_TOKEN}` } }
           ).then(r => r.json());
+
           for (const ps of (psData.results||[])) {
-            const pid  = String(ps.player?.id || ps.player_id || '');
-            const ptid = String(ps.team_id || ps.player?.team_id || ps.player?.current_team_id || '');
-            if (pid && pid !== 'undefined' && pid !== 'null' && !playersSeen.has(pid) && ptid === teamId) {
+            const pid = String(ps.player?.id || ps.player_id || '');
+            if (!pid || pid === 'undefined' || pid === 'null' || playersSeen.has(pid)) continue;
+
+            // BSD v2 não retorna team_id na raiz — inferir pelo lado do evento
+            // Estratégia: aceita TODOS os jogadores e depois deduplica
+            // O filtro real é: se o evento foi buscado via home_team_id=X, todos os
+            // player-stats desse evento pertencem a X OU ao adversário.
+            // Para separar: tenta team_id no ps, senão aceita tudo e confia na dedup
+            const ptid = String(
+              ps.team_id ||
+              ps.player?.team_id ||
+              ps.player?.current_team_id ||
+              ps.player?.teams?.[0]?.id ||
+              ''
+            );
+
+            // Se temos team_id, filtra direto; senão, usa o lado do evento como proxy
+            const teamMatch = ptid === teamId ||
+              (ptid === '' && ps.is_home === (evSide === 'home')) ||
+              (ptid === '' && ps.side === evSide) ||
+              (ptid === '' && ps.team === evHomeId && evSide === 'home') ||
+              (ptid === '' && ps.team === evAwayId && evSide === 'away');
+
+            if (teamMatch) {
               playersSeen.set(pid, {
                 id:            pid,
                 name:          ps.player?.name || ps.player?.display_name || '—',
@@ -732,37 +759,80 @@ app.get('/api/squad/:id', async (req, res) => {
     try {
       const df = today();
       const dt = dayOffset(10); // janela de 10 dias para capturar próximo jogo
+      const pastFrom = new Date(Date.now() - 30*86400000).toISOString().slice(0,10);
 
-      const [homeNext, awayNext] = await Promise.allSettled([
-        fetch(`https://sports.bzzoiro.com/api/events/?home_team_id=${teamId}&date_from=${df}&date_to=${dt}&limit=1&ordering=event_date`,
+      const [homeNext, awayNext, homePast, awayPast] = await Promise.allSettled([
+        fetch(`https://sports.bzzoiro.com/api/events/?home_team_id=${teamId}&date_from=${df}&date_to=${dt}&limit=5&ordering=event_date`,
           { headers: { Authorization: `Token ${BSD_TOKEN}` } }).then(r => r.json()),
-        fetch(`https://sports.bzzoiro.com/api/events/?away_team_id=${teamId}&date_from=${df}&date_to=${dt}&limit=1&ordering=event_date`,
+        fetch(`https://sports.bzzoiro.com/api/events/?away_team_id=${teamId}&date_from=${df}&date_to=${dt}&limit=5&ordering=event_date`,
+          { headers: { Authorization: `Token ${BSD_TOKEN}` } }).then(r => r.json()),
+        // Jogos passados como fallback para lineup
+        fetch(`https://sports.bzzoiro.com/api/events/?home_team_id=${teamId}&date_from=${pastFrom}&date_to=${df}&limit=5&ordering=-event_date`,
+          { headers: { Authorization: `Token ${BSD_TOKEN}` } }).then(r => r.json()),
+        fetch(`https://sports.bzzoiro.com/api/events/?away_team_id=${teamId}&date_from=${pastFrom}&date_to=${df}&limit=5&ordering=-event_date`,
           { headers: { Authorization: `Token ${BSD_TOKEN}` } }).then(r => r.json()),
       ]);
 
-      const homeMatch = homeNext.status === 'fulfilled' ? (homeNext.value.results||[])[0] : null;
-      const awayMatch = awayNext.status === 'fulfilled' ? (awayNext.value.results||[])[0] : null;
+      const futureHome = homeNext.status === 'fulfilled' ? (homeNext.value.results||[]) : [];
+      const futureAway = awayNext.status === 'fulfilled' ? (awayNext.value.results||[]) : [];
+      const pastHome   = homePast.status === 'fulfilled' ? (homePast.value.results||[])  : [];
+      const pastAway   = awayPast.status === 'fulfilled' ? (awayPast.value.results||[])  : [];
 
-      // Pega o mais próximo dos dois
+      // Candidatos futuros (ordenados pelo mais próximo)
+      const futureCandidates = [
+        ...futureHome.map(m => ({ m, isHome: true })),
+        ...futureAway.map(m => ({ m, isHome: false }))
+      ].sort((a,b) => new Date(a.m.event_date) - new Date(b.m.event_date));
+
+      // Candidatos passados (ordenados pelo mais recente)
+      const pastCandidates = [
+        ...pastHome.map(m => ({ m, isHome: true })),
+        ...pastAway.map(m => ({ m, isHome: false }))
+      ].sort((a,b) => new Date(b.m.event_date) - new Date(a.m.event_date));
+
+      // Tenta primeiro os jogos futuros, depois os passados
+      // Busca sequencialmente até encontrar um que tenha lineup válida
+      const allCandidates = [...futureCandidates, ...pastCandidates];
+
       let nextMatch = null;
       let isHomeTeam = false;
-      if (homeMatch && awayMatch) {
-        if (new Date(homeMatch.event_date) <= new Date(awayMatch.event_date)) {
-          nextMatch = homeMatch; isHomeTeam = true;
-        } else {
-          nextMatch = awayMatch; isHomeTeam = false;
-        }
-      } else if (homeMatch) { nextMatch = homeMatch; isHomeTeam = true; }
-      else if (awayMatch)   { nextMatch = awayMatch; isHomeTeam = false; }
+      let lu = null;
 
-      if (nextMatch) {
+      for (const { m, isHome } of allCandidates.slice(0, 8)) {
+        try {
+          const resp = await fetch(
+            `https://sports.bzzoiro.com/api/events/${m.id}/lineups/`,
+            { headers: { Authorization: `Token ${BSD_TOKEN}` } }
+          ).then(r => r.json());
+
+          // Descarta se a BSD retornou 404/erro
+          if (resp.error || resp.detail || resp.status === 404) {
+            console.log(`[squad] lineup 404/erro para evento ${m.id} — tentando próximo`);
+            continue;
+          }
+
+          // Verifica se tem dados de lineup reais (pelo menos um jogador)
+          const tryLineups = resp.lineups || resp;
+          const sideData   = isHome ? (tryLineups.home || resp.home) : (tryLineups.away || resp.away);
+          const hasPlayers = (sideData?.players?.length || 0) + (sideData?.substitutes?.length || 0) > 0;
+
+          if (!hasPlayers) {
+            console.log(`[squad] lineup vazia para evento ${m.id} — tentando próximo`);
+            continue;
+          }
+
+          // Achou lineup válida!
+          nextMatch  = m;
+          isHomeTeam = isHome;
+          lu         = resp;
+          console.log(`[squad] lineup válida encontrada: evento ${m.id} (${m.event_date?.slice(0,10)}) isHome=${isHome}`);
+          break;
+        } catch(_) {}
+      }
+
+      if (nextMatch && lu) {
         nextMatchInfo = `${nextMatch.home_team} × ${nextMatch.away_team} (${nextMatch.event_date?.slice(0,10)}) [isHome=${isHomeTeam}]`;
         console.log(`[squad] próximo jogo: ${nextMatchInfo}`);
-
-        const lu = await fetch(
-          `https://sports.bzzoiro.com/api/events/${nextMatch.id}/lineups/`,
-          { headers: { Authorization: `Token ${BSD_TOKEN}` } }
-        ).then(r => r.json());
 
         // BSD pode retornar: lu.lineup_status  OU  lu.status
         lineupStatus = lu.lineup_status || lu.status || null;
@@ -854,7 +924,7 @@ app.get('/api/squad/:id', async (req, res) => {
           console.log(`[squad] side não encontrado — keys lu: ${Object.keys(lu).join(',')}`);
         }
       } else {
-        console.log(`[squad] nenhum próximo jogo em ${df}~${dt} para teamId=${teamId}`);
+        console.log(`[squad] nenhuma lineup válida encontrada nos ${allCandidates.length} candidatos`);
       }
     } catch(e) {
       console.log('[squad] erro na lineup:', e.message);
