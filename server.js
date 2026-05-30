@@ -151,91 +151,72 @@ app.get('/api/debug/evento', async (req, res) => {
   } catch(e){ res.status(500).json({error: e.message}); }
 });
 // ─────────────────────────────────────────────
-// DIAGNÓSTICO DE LINEUP — chame no browser para ver o que a BSD retorna
-// GET /api/debug/lineup/:teamId
-// Ex: https://scoutpro-backend-9q23.onrender.com/api/debug/lineup/2763
+// DIAGNÓSTICO COMPLETO — GET /api/debug/lineup/:teamId
+// Testa o evento com full=true (mesma chamada que o modal usa) e extrai onde estão as lineups
 // ─────────────────────────────────────────────
 app.get('/api/debug/lineup/:teamId', async (req, res) => {
   const teamId = String(req.params.teamId);
   const df = new Date().toISOString().slice(0,10);
   const dt = new Date(Date.now() + 10*86400000).toISOString().slice(0,10);
-  const result = { teamId, df, dt, steps: {} };
+  const pastFrom = new Date(Date.now() - 14*86400000).toISOString().slice(0,10);
+  const result = { teamId, df, pastFrom, dt, steps: {} };
 
-  // Passo 1: busca jogadores pelo endpoint direto
-  try {
-    const r = await fetch(`https://sports.bzzoiro.com/api/players/?team=${teamId}&limit=5`,
-      { headers: { Authorization: `Token ${BSD_TOKEN}` } }).then(r => r.json());
-    result.steps.players_endpoint = {
-      count: (r.results||[]).length,
-      sample: (r.results||[]).slice(0,2).map(p => ({ id: p.id, name: p.name, position: p.position }))
-    };
-  } catch(e) { result.steps.players_endpoint = { error: e.message }; }
-
-  // Passo 2: busca próximo jogo como mandante
-  try {
-    const r = await fetch(
-      `https://sports.bzzoiro.com/api/events/?home_team_id=${teamId}&date_from=${df}&date_to=${dt}&limit=3&ordering=event_date`,
-      { headers: { Authorization: `Token ${BSD_TOKEN}` } }).then(r => r.json());
-    result.steps.next_home = {
-      count: (r.results||[]).length,
-      matches: (r.results||[]).map(e => ({
-        id: e.id, date: e.event_date?.slice(0,10),
-        home: e.home_team, away: e.away_team,
-        home_id: e.home_team_id || e.home_team_obj?.id,
-        away_id: e.away_team_id || e.away_team_obj?.id,
-      }))
-    };
-  } catch(e) { result.steps.next_home = { error: e.message }; }
-
-  // Passo 3: busca próximo jogo como visitante
-  try {
-    const r = await fetch(
-      `https://sports.bzzoiro.com/api/events/?away_team_id=${teamId}&date_from=${df}&date_to=${dt}&limit=3&ordering=event_date`,
-      { headers: { Authorization: `Token ${BSD_TOKEN}` } }).then(r => r.json());
-    result.steps.next_away = {
-      count: (r.results||[]).length,
-      matches: (r.results||[]).map(e => ({
-        id: e.id, date: e.event_date?.slice(0,10),
-        home: e.home_team, away: e.away_team,
-        home_id: e.home_team_id || e.home_team_obj?.id,
-        away_id: e.away_team_id || e.away_team_obj?.id,
-      }))
-    };
-  } catch(e) { result.steps.next_away = { error: e.message }; }
-
-  // Passo 4: se achou algum jogo, busca a lineup
-  const nextMatch = (result.steps.next_home?.matches?.[0]) || (result.steps.next_away?.matches?.[0]);
-  if (nextMatch) {
+  // Passo 1: próximos jogos (futuro e passado recente)
+  const allMatches = [];
+  for (const [param, from, to, label] of [
+    ['home_team_id', df,       dt,      'futuro_home'],
+    ['away_team_id', df,       dt,      'futuro_away'],
+    ['home_team_id', pastFrom, df,      'passado_home'],
+    ['away_team_id', pastFrom, df,      'passado_away'],
+  ]) {
     try {
-      const lu = await fetch(
-        `https://sports.bzzoiro.com/api/events/${nextMatch.id}/lineups/`,
-        { headers: { Authorization: `Token ${BSD_TOKEN}` } }).then(r => r.json());
+      const r = await fetch(
+        `https://sports.bzzoiro.com/api/events/?${param}=${teamId}&date_from=${from}&date_to=${to}&limit=3&ordering=event_date`,
+        { headers: { Authorization: `Token ${BSD_TOKEN}` } }
+      ).then(r => r.json());
+      result.steps[label] = (r.results||[]).map(e => ({ id: e.id, date: e.event_date?.slice(0,10), home: e.home_team, away: e.away_team }));
+      allMatches.push(...(r.results||[]).map(e => ({ ...e, _side: param.startsWith('home') ? 'home' : 'away' })));
+    } catch(e) { result.steps[label] = { error: e.message }; }
+  }
 
-      const lineups = lu.lineups || lu;
-      const home    = lineups.home || lu.home;
-      const away    = lineups.away || lu.away;
+  // Passo 2: para os primeiros 3 jogos encontrados, testa 3 endpoints de lineup diferentes
+  result.steps.lineup_probes = [];
+  const seen = new Set();
+  for (const ev of allMatches.filter(e => !seen.has(e.id) && seen.add(e.id)).slice(0,3)) {
+    const probe = { event_id: ev.id, date: ev.event_date?.slice(0,10), home: ev.home_team, away: ev.away_team, side: ev._side, endpoints: {} };
 
-      result.steps.lineup = {
-        event_id:      nextMatch.id,
-        lineup_status: lu.lineup_status || lu.status || null,
-        top_keys:      Object.keys(lu),
-        home_players:  (home?.players||[]).slice(0,4).map(p => ({
-          id: p.player_id || p.player?.id || p.id,
-          name: p.name || p.player?.name || p.short_name,
-        })),
-        home_subs:     (home?.substitutes||[]).slice(0,2).map(p => ({
-          id: p.player_id || p.player?.id || p.id,
-          name: p.name || p.player?.name || p.short_name,
-        })),
-        away_players:  (away?.players||[]).slice(0,4).map(p => ({
-          id: p.player_id || p.player?.id || p.id,
-          name: p.name || p.player?.name || p.short_name,
-        })),
-        raw_home_sample: home?.players?.[0] || null,  // estrutura bruta do 1º jogador
+    // Endpoint A: /events/{id}/lineups/
+    try {
+      const r = await fetch(`https://sports.bzzoiro.com/api/events/${ev.id}/lineups/`, { headers: { Authorization: `Token ${BSD_TOKEN}` } }).then(r => r.json());
+      probe.endpoints.lineups_endpoint = { top_keys: Object.keys(r), lineup_status: r.lineup_status||r.status||null, has_home: !!(r.lineups?.home||r.home), has_away: !!(r.lineups?.away||r.away), home_player_count: (r.lineups?.home?.players||r.home?.players||[]).length, sample_player: (r.lineups?.home?.players||r.home?.players||[])[0] || null };
+    } catch(e) { probe.endpoints.lineups_endpoint = { error: e.message }; }
+
+    // Endpoint B: /events/{id}/?full=true  (mesmo que o modal usa)
+    try {
+      const r = await fetch(`https://sports.bzzoiro.com/api/events/${ev.id}/?full=true`, { headers: { Authorization: `Token ${BSD_TOKEN}` } }).then(r => r.json());
+      const lu = r.lineups || r.lineup;
+      probe.endpoints.event_full = {
+        top_keys: Object.keys(r),
+        has_lineups_key: !!r.lineups,
+        has_lineup_key: !!r.lineup,
+        lineup_status: r.lineup_status || r.lineups?.lineup_status || null,
+        home_player_count: (lu?.home?.players||[]).length,
+        away_player_count: (lu?.away?.players||[]).length,
+        sample_player: (lu?.home?.players||[])[0] || (lu?.away?.players||[])[0] || null,
       };
-    } catch(e) { result.steps.lineup = { error: e.message }; }
-  } else {
-    result.steps.lineup = { skipped: 'nenhum jogo encontrado nos passos anteriores' };
+    } catch(e) { probe.endpoints.event_full = { error: e.message }; }
+
+    // Endpoint C: /predictions/{id}/  (tem lineup predita?)
+    try {
+      const r = await fetch(`https://sports.bzzoiro.com/api/events/${ev.id}/prediction/`, { headers: { Authorization: `Token ${BSD_TOKEN}` } }).then(r => r.json());
+      probe.endpoints.prediction = {
+        top_keys: Object.keys(r),
+        has_lineups: !!(r.lineups||r.lineup||r.predicted_lineup||r.home_lineup),
+        lineup_keys: Object.keys(r).filter(k => k.toLowerCase().includes('line')||k.toLowerCase().includes('squad')||k.toLowerCase().includes('player')),
+      };
+    } catch(e) { probe.endpoints.prediction = { error: e.message }; }
+
+    result.steps.lineup_probes.push(probe);
   }
 
   res.json(result);
