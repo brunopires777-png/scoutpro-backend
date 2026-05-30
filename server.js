@@ -9,8 +9,21 @@ const PORT = process.env.PORT || 3000;
 const BSD_TOKEN = process.env.BSD_TOKEN || 'dddbf69d96a0efa0ffeb9f8d0c791528b61d1c1d';
 const BASE_URL = 'https://sports.bzzoiro.com/api/v2';
 
-app.use(cors());
+app.use(cors({
+  origin: '*',
+  methods: ['GET','POST','PUT','DELETE','OPTIONS'],
+  allowedHeaders: ['Content-Type','Authorization','Accept','X-Requested-With'],
+  credentials: false
+}));
+// Preflight para Safari/iOS
+app.options('*', cors());
 app.use(express.json());
+// Headers extras de segurança compatíveis com Safari
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  next();
+});
 
 // ─────────────────────────────────────────────
 // SERVE O FRONTEND — acesse via https://seu-app.onrender.com/
@@ -1367,37 +1380,90 @@ app.get('/api/times/:id/jogos', async (req, res) => {
 // ─────────────────────────────────────────────
 app.get('/api/jogadores', async (req, res) => {
   try {
-    const { team_id, position, name, nationality_code, limit = 100, team_name } = req.query;
-    
-    // Busca principal por nome
+    const { team_id, position, name, nationality_code, limit = 200, team_name } = req.query;
     const results = [];
-    const seen = new Set();
-    
-    // Tentativa 1: busca direta por nome
+    const seen    = new Set();
+
+    const addPlayers = (list, teamOverride = null) => {
+      for (const p of (list || [])) {
+        if (seen.has(p.id)) continue;
+        seen.add(p.id);
+        // Garante que o time está sempre preenchido no resultado
+        const enriched = { ...p };
+        if (teamOverride) enriched.current_team = teamOverride;
+        // Tenta popular current_team a partir de campos alternativos da BSD
+        if (!enriched.current_team) {
+          enriched.current_team = p.team || p.club || p.current_club || null;
+        }
+        results.push(enriched);
+      }
+    };
+
+    // Tentativa 1: busca direta por nome com limit alto
     try {
       const d = await bsd('/players/', { name, team_id, position, nationality_code, limit });
-      for (const p of (d.results || [])) {
-        if (!seen.has(p.id)) { seen.add(p.id); results.push(p); }
-      }
+      addPlayers(d.results);
     } catch (_) {}
 
-    // Tentativa 2: se forneceu nome do time (ex: "Pedro Flamengo"),
-    // busca o time e depois filtra jogadores do elenco
-    if (team_name && results.length < 5) {
+    // Tentativa 2: se forneceu nome do time, busca pelo time e filtra por nome
+    // Detecta "nome time" da query completa se team_name não foi passado separado
+    const teamQuery = team_name || '';
+    if (teamQuery && results.length < 10) {
       try {
-        const tData = await bsd('/teams/', { name: team_name, limit: 3 });
-        for (const team of (tData.results || [])) {
-          const sq = await bsd(`/teams/${team.id}/players/`, { limit: 50 });
-          for (const p of (sq.results || [])) {
-            const pName = (p.name || '').toLowerCase();
-            const qName = (name || '').toLowerCase();
-            if (pName.includes(qName) && !seen.has(p.id)) {
-              seen.add(p.id);
-              results.push({ ...p, current_team: { id: team.id, name: team.name } });
-            }
+        const tData = await bsd('/teams/', { search: teamQuery, limit: 5 });
+        const teams = tData.results || [];
+        await Promise.all(teams.slice(0, 3).map(async team => {
+          try {
+            // Tenta endpoint de squad do time
+            const sq = await bsd(`/teams/${team.id}/squad/`, { limit: 100 });
+            const players = sq.results || sq.players || sq.squad || [];
+            const nameFilter = (name || '').toLowerCase();
+            const filtered = players.filter(p =>
+              !nameFilter || (p.name || p.display_name || '').toLowerCase().includes(nameFilter)
+            );
+            addPlayers(filtered, { id: team.id, name: team.name });
+          } catch (_) {
+            // Fallback: /players/?team=ID
+            try {
+              const pp = await bsd('/players/', { team: team.id, limit: 100 });
+              const nameFilter = (name || '').toLowerCase();
+              const filtered = (pp.results||[]).filter(p =>
+                !nameFilter || (p.name||'').toLowerCase().includes(nameFilter)
+              );
+              addPlayers(filtered, { id: team.id, name: team.name });
+            } catch (_) {}
           }
-        }
+        }));
       } catch (_) {}
+    }
+
+    // Tentativa 3: se ainda poucos resultados, busca via standings/events pelo nome do time
+    if (teamQuery && results.length < 3) {
+      try {
+        // Busca eventos recentes e extrai jogadores do time pelo nome
+        const df = new Date(Date.now() - 14*86400000).toISOString().slice(0,10);
+        const dt = new Date().toISOString().slice(0,10);
+        const evs = await bsd('/events/', { search: teamQuery, date_from: df, date_to: dt, limit: 10 });
+        const teamIds = new Set();
+        for (const ev of (evs.results||[])) {
+          const hn = (ev.home_team||'').toLowerCase();
+          const an = (ev.away_team||'').toLowerCase();
+          const tq = teamQuery.toLowerCase();
+          if (hn.includes(tq)) teamIds.add({ id: ev.home_team_id||ev.home_team_obj?.id, name: ev.home_team });
+          if (an.includes(tq)) teamIds.add({ id: ev.away_team_id||ev.away_team_obj?.id, name: ev.away_team });
+        }
+        for (const t of teamIds) {
+          if (!t.id) continue;
+          try {
+            const pp = await bsd('/players/', { team: t.id, limit: 100 });
+            const nameFilter = (name||'').toLowerCase();
+            const filtered = (pp.results||[]).filter(p =>
+              !nameFilter || (p.name||'').toLowerCase().includes(nameFilter)
+            );
+            addPlayers(filtered, { id: t.id, name: t.name });
+          } catch(_) {}
+        }
+      } catch(_) {}
     }
 
     res.json({ results, count: results.length });
