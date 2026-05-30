@@ -583,9 +583,11 @@ app.get('/api/squad/:id', async (req, res) => {
       ).then(r => r.json());
 
       // Filtra eventos do time
-      const teamEvents = (evData.results||[]).filter(ev =>
-        String(ev.home_team_id) === teamId || String(ev.away_team_id) === teamId
-      ).slice(0, 5); // últimos 5 jogos
+      const teamEvents = (evData.results||[]).filter(ev => {
+        const hid = String(ev.home_team_id || ev.home_team_obj?.id || '');
+        const aid = String(ev.away_team_id || ev.away_team_obj?.id || '');
+        return hid === teamId || aid === teamId;
+      }).slice(0, 5); // últimos 5 jogos
 
       console.log(`SQUAD via events: ${teamEvents.length} jogos encontrados para time ${teamId}`);
 
@@ -631,34 +633,53 @@ app.get('/api/squad/:id', async (req, res) => {
           { headers: { Authorization: `Token ${BSD_TOKEN}` } }
         ).then(r => r.json());
         lineupStatus = lu.lineup_status || null;
-        // Determina qual lado é o time buscado
-        const isHome = String(nextMatch.home_team_id) === String(teamId) ||
-                       String(nextMatch.home_team_obj?.id) === String(teamId);
-        const side = isHome ? lu.lineups?.home : lu.lineups?.away;
+        // Determina qual lado do time buscado — checa todos os campos de ID possíveis
+        const hid = String(nextMatch.home_team_id || nextMatch.home_team_obj?.id || '');
+        const aid = String(nextMatch.away_team_id || nextMatch.away_team_obj?.id || '');
+        const isHome = hid === String(teamId);
+        const isAway = aid === String(teamId);
+        const side = isHome ? lu.lineups?.home : (isAway ? lu.lineups?.away : (lu.lineups?.home || lu.lineups?.away));
+
         if (side) {
-          const allPlayers = [...(side.players||[]), ...(side.substitutes||[])];
-          // Coleta IDs E nomes para fallback
-          const lineupNames = new Set();
-          allPlayers.forEach(p => {
-            // BSD pode usar player_id, id, ou player.id
-            const pid = String(p.player_id || p.player?.id || p.id || '');
+          const starters   = side.players     || [];
+          const subs       = side.substitutes || [];
+          const starterNames = new Set();
+          const lineupNames  = new Set();
+
+          // Coleta IDs dos titulares e reservas separadamente
+          starters.forEach(p => {
+            const pid   = String(p.player_id || p.player?.id || p.id || '');
             const pname = (p.name || p.player?.name || p.short_name || '').toLowerCase().trim();
             if (pid && pid !== 'undefined') {
               lineupPlayerIds.add(pid);
               if (lineupStatus === 'confirmed') confirmedPlayerIds.add(pid);
             }
+            if (pname) { lineupNames.add(pname); starterNames.add(pname); }
+          });
+          subs.forEach(p => {
+            const pid   = String(p.player_id || p.player?.id || p.id || '');
+            const pname = (p.name || p.player?.name || p.short_name || '').toLowerCase().trim();
+            if (pid && pid !== 'undefined') lineupPlayerIds.add(pid);
             if (pname) lineupNames.add(pname);
           });
 
-          // Fallback: marcar pelo nome se IDs não bateram
+          // Fallback por token de nome quando BSD não expõe player_id na lineup
           if (lineupPlayerIds.size === 0 && lineupNames.size > 0) {
+            const lineupTokenArr = [...lineupNames].map(n => n.split(/\s+/).filter(t => t.length > 2));
+            const starterTokenArr = [...starterNames].map(n => n.split(/\s+/).filter(t => t.length > 2));
             players.forEach(p => {
-              const pname = (p.name||'').toLowerCase().trim();
-              const shortName = pname.split(' ').slice(0,2).join(' ');
-              if (lineupNames.has(pname) || lineupNames.has(shortName) ||
-                  [...lineupNames].some(ln => ln.includes(shortName) || shortName.includes(ln.split(' ')[0]))) {
-                lineupPlayerIds.add(String(p.id));
-                if (lineupStatus === 'confirmed') confirmedPlayerIds.add(String(p.id));
+              const ptokens = (p.name||'').toLowerCase().trim().split(/\s+/).filter(t => t.length > 2);
+              const hitIdx = lineupTokenArr.findIndex(ltoks =>
+                ltoks.some(lt => ptokens.some(pt => lt.startsWith(pt) || pt.startsWith(lt)))
+              );
+              if (hitIdx >= 0) {
+                const pid = String(p.id);
+                lineupPlayerIds.add(pid);
+                // Verifica se estava entre os titulares
+                const isStarter = starterTokenArr.some(ltoks =>
+                  ltoks.some(lt => ptokens.some(pt => lt.startsWith(pt) || pt.startsWith(lt)))
+                );
+                if (lineupStatus === 'confirmed' && isStarter) confirmedPlayerIds.add(pid);
               }
             });
           }
