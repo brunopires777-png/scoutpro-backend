@@ -556,8 +556,8 @@ td.nd{color:#555;font-size:13px}
       <button class="tab active" onclick="goPage('scout',this)">Scout</button>
       <button class="tab" onclick="goPage('jogos',this)">Jogos & Predições<span class="live-dot" id="live-dot"></span></button>
       <button class="tab" onclick="goPage('classificacao',this)">Tabela</button>
-      <button class="tab" onclick="goPage('historico',this)">Histórico</button>
       <button class="tab" onclick="goPage('arbitros',this)">Árbitros</button>
+      <button class="tab" onclick="goPage('historico',this)">Histórico</button>
     </div>
   </div>
 
@@ -993,7 +993,7 @@ async function selecionarTime(id,name,logo){
   document.getElementById('squad-area').innerHTML=`<div class="loading"><div class="spinner-wrap"><div class="spinner"></div><div class="spinner-pct">0%</div></div><p>Carregando elenco de <strong>${name}</strong>...</p></div>`;
   try{localStorage.removeItem('sp4_squad_'+id);}catch(e){}
   try{
-    const data=await apiFetch(`/api/squad/${id}`,`squad_${id}`,600000); // 10min cache — atualiza escalações confirmadas rapidamente
+    const data=await apiFetch(`/api/squad/${id}`,`squad_${id}`,43200000); // 12h cache — botão Atualizar força refresh manual
     const players=data.players||[];
     const lineupStatus=data.lineup_status||null;
     if(!players.length){document.getElementById('squad-area').innerHTML=`<div class="empty"><div class="empty-icon">👤</div><p>Elenco não encontrado.</p></div>`;return;}
@@ -2048,7 +2048,7 @@ async function buscarJogador(){
 
     // Tentativa 1: busca direta pelo nome completo
     try{
-      const r = await fetch(`${API}/api/jogadores?name=${encodeURIComponent(q)}&limit=100`);
+      const r = await fetch(`${API}/api/jogadores?name=${encodeURIComponent(q)}&limit=200`);
       const d = await r.json();
       players = d.results || [];
     }catch(_){}
@@ -2059,7 +2059,7 @@ async function buscarJogador(){
       const nome = tokens[0];
       const time = tokens.slice(1).join(' ');
       try{
-        const r2 = await fetch(`${API}/api/jogadores?name=${encodeURIComponent(nome)}&team_name=${encodeURIComponent(time)}&limit=100`);
+        const r2 = await fetch(`${API}/api/jogadores?name=${encodeURIComponent(nome)}&team_name=${encodeURIComponent(time)}&limit=200`);
         const d2 = await r2.json();
         const extra = d2.results || [];
         const ids = new Set(players.map(p=>p.id));
@@ -2101,9 +2101,9 @@ async function buscarJogador(){
           Ex: <strong>"Pedro Flamengo"</strong> ou <strong>"Ganso Fluminense"</strong>
         </p></div>`;
     } else {
-      area.innerHTML = `<div class="player-results">`+players.slice(0,20).map(p=>{
+      area.innerHTML = `<div class="player-results">`+players.slice(0,50).map(p=>{
         const pos = p.position||'—';
-        const team = p.current_team?.name||p.current_team||p.team?.name||p.team||'—';
+        const team = p.current_team?.name||p.current_team?.short_name||(typeof p.current_team==='string'?p.current_team:null)||p.team?.name||p.team?.short_name||(typeof p.team==='string'?p.team:null)||p.club?.name||p.club||'—';
         const country = p.nationality||p.country||p.nationality_code||'';
         return `<div class="player-result-item" onclick="verStatsJogadorDireto(${p.id},'${esc(p.name||p.display_name)}','${esc(team)}','${esc(pos)}')">
           <div class="pr-photo">
@@ -2344,10 +2344,14 @@ function renderArbitros(arbs){
           ${ref.avg_fouls?`<span>⚡ ${Number(ref.avg_fouls).toFixed(1)} faltas/jogo</span>`:''}
           <span style="color:#555">${ref.matches||0} partidas</span>
         </div>
-        ${ref.jogos&&ref.jogos.length?`<div style="font-size:10px;color:var(--text3);margin-top:4px">
-          ${ref.jogos.slice(0,2).map(j=>`📅 ${j.home_team} × ${j.away_team} · ${j.league_name}`).join('<br>')}
-          ${ref.jogos.length>2?`<span style="color:#555"> +${ref.jogos.length-2} jogo(s)</span>`:''}
-        </div>`:'<div style="font-size:10px;color:#555;margin-top:4px">Sem jogos confirmados nos próximos 7 dias</div>'}
+        ${ref.jogos&&ref.jogos.length?`<div style="font-size:10px;color:var(--text3);margin-top:5px;line-height:1.7">
+          ${ref.jogos.slice(0,3).map(j=>{
+            const d=j.event_date?new Date(j.event_date):null;
+            const dataFmt=d?d.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',timeZone:'America/Sao_Paulo'})+' '+d.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit',timeZone:'America/Sao_Paulo'}):'';
+            return `<span style="display:block"><span style="color:var(--green);font-weight:700">▶</span> ${j.home_team} × ${j.away_team}<br><span style="color:#555;font-size:9px;padding-left:10px">${j.league_name}${dataFmt?' · '+dataFmt:''}</span></span>`;
+          }).join('')}
+          ${ref.jogos.length>3?`<span style="color:#444;font-size:9px"> +${ref.jogos.length-3} jogo(s)</span>`:''}
+        </div>`:'<div style="font-size:10px;color:#444;margin-top:4px;font-style:italic">Sem jogos confirmados nos próximos 7 dias</div>'}
       </div>
       <div class="pr-pos" style="color:#ff9100;border-color:rgba(255,145,0,.3);background:rgba(255,145,0,.08)">${ref.matches||'?'}🎮</div>
     </div>`).join('');
@@ -2528,4 +2532,4 @@ document.addEventListener('keydown',e=>{if(e.key==='Enter'&&document.activeEleme
 
 
 </body>
-          </html>
+</html>
