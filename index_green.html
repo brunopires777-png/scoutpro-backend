@@ -648,8 +648,15 @@ td.nd{color:#555;font-size:13px}
 
   <!-- CLASSIFICAÇÃO -->
   <div class="page" id="page-classificacao">
-    <input type="hidden" id="sel-liga-class" value="">
-    <div id="class-area"><div class="loading"><div class="spinner-wrap"><div class="spinner"></div><div class="spinner-pct">0%</div></div><p>Carregando tabela...</p></div></div>
+    <div class="filter-row">
+      <button class="lp-trigger" id="lp-class-btn" onclick="abrirLP('lp-class','carregarClassificacao()')">
+        <span class="lp-trigger-ico">🏆</span>
+        <span class="lp-trigger-text" id="lp-class-label">Selecione uma liga</span>
+        <span class="lp-trigger-arrow">▼</span>
+      </button>
+      <input type="hidden" id="sel-liga-class" value="">
+    </div>
+    <div id="class-area"><div class="empty"><div class="empty-icon">📊</div><p>Selecione uma liga acima</p></div></div>
   </div>
 
 
@@ -826,7 +833,7 @@ function goPage(name,el){
   el.classList.add('active');
   if(name==='historico')renderHist();
   if(name==='jogos'&&!jogosCarregados)carregarJogos('hoje');
-  if(name==='classificacao')carregarClassificacao();
+  // classificacao: não auto-carrega — usuário seleciona a liga pelo LP
   if(name==='arbitros')carregarArbitrosProximos(null);
 }
 
@@ -1042,11 +1049,18 @@ async function selecionarTime(id,name,logo){
   }catch(e){document.getElementById('squad-area').innerHTML=`<div class="err">Erro: ${e.message}</div>`;}
 }
 
-// Botão "Atualizar Escalação" — limpa cache e recarrega elenco
+// Botão "Atualizar Escalação" — limpa cache DB e recarrega elenco
 async function atualizarEscalacao(id, name){
   try{
-    // Limpa todos os caches relacionados ao squad deste time
-    Object.keys(localStorage).filter(k=>k.includes('squad_'+id)||k.includes('_squad_'+id)).forEach(k=>localStorage.removeItem(k));
+    // DB usa prefixo sp4_ — a chave do squad é sp4_squad_ID
+    localStorage.removeItem('sp4_squad_'+id);
+    // Limpa qualquer variação que possa existir
+    const toRemove = [];
+    for(let i=0;i<localStorage.length;i++){
+      const k=localStorage.key(i);
+      if(k&&(k.includes('squad_'+id)||k.includes('squad'+id))) toRemove.push(k);
+    }
+    toRemove.forEach(k=>localStorage.removeItem(k));
   }catch(e){}
   await selecionarTime(id, name);
 }
@@ -2520,4 +2534,4 @@ document.addEventListener('keydown',e=>{if(e.key==='Enter'&&document.activeEleme
 
 
 </body>
-        </html>
+                                                                                                                     </html>
