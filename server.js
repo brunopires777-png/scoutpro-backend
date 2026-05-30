@@ -843,9 +843,19 @@ app.get('/api/squad/:id', async (req, res) => {
         nextMatchInfo = `${nextMatch.home_team} × ${nextMatch.away_team} (${nextMatch.event_date?.slice(0,10)}) [isHome=${isHomeTeam}]`;
         console.log(`[squad] próximo jogo: ${nextMatchInfo}`);
 
-        // BSD pode retornar: lu.lineup_status  OU  lu.status
+        // Se o jogo já começou, a escalação É confirmada independente do campo lineup_status
+        const LIVE_S = new Set(['inprogress','live','1h','2h','ht','ongoing','in_progress','extra_time','et','penalties']);
+        const evStatus = (nextMatch.status||'').toLowerCase();
+        const matchIsLive = LIVE_S.has(evStatus) || nextMatch.is_live === true
+          || (nextMatch.current_minute > 0 && evStatus !== 'finished' && evStatus !== 'ft');
+        const matchIsFinished = evStatus === 'finished' || evStatus === 'ft' || evStatus === 'complete';
+
         lineupStatus = lu.lineup_status || lu.status || null;
-        console.log(`[squad] lineup_status=${lineupStatus}, keys=${Object.keys(lu).join(',')}`);
+
+        // Jogo ao vivo ou encerrado = escalação confirmada de fato
+        if (matchIsLive || matchIsFinished) lineupStatus = 'confirmed';
+
+        console.log(`[squad] lineup_status=${lineupStatus} evStatus=${evStatus} isLive=${matchIsLive} isFinished=${matchIsFinished}`);
 
         // BSD pode retornar estrutura:
         //   lu.lineups.home / lu.lineups.away  (aninhada)
