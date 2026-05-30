@@ -2344,14 +2344,18 @@ function renderArbitros(arbs){
           ${ref.avg_fouls?`<span>⚡ ${Number(ref.avg_fouls).toFixed(1)} faltas/jogo</span>`:''}
           <span style="color:#555">${ref.matches||0} partidas</span>
         </div>
-        ${ref.jogos&&ref.jogos.length?`<div style="font-size:10px;color:var(--text3);margin-top:5px;line-height:1.7">
-          ${ref.jogos.slice(0,3).map(j=>{
+        ${ref.jogos&&ref.jogos.length?`<div style="margin-top:7px;display:flex;flex-direction:column;gap:5px">
+          ${ref.jogos.slice(0,3).map((j,i)=>{
             const d=j.event_date?new Date(j.event_date):null;
             const dataFmt=d?d.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',timeZone:'America/Sao_Paulo'})+' '+d.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit',timeZone:'America/Sao_Paulo'}):'';
-            return `<span style="display:block"><span style="color:var(--green);font-weight:700">▶</span> ${j.home_team} × ${j.away_team}<br><span style="color:#555;font-size:9px;padding-left:10px">${j.league_name}${dataFmt?' · '+dataFmt:''}</span></span>`;
+            const isNext=i===0;
+            return `<div style="background:${isNext?'rgba(57,255,20,.08)':'rgba(255,255,255,.03)'};border:1px solid ${isNext?'rgba(57,255,20,.25)':'rgba(255,255,255,.07)'};border-radius:8px;padding:6px 10px">
+              <div style="font-size:12px;font-weight:700;color:${isNext?'#e8e8e8':'#aaa'}">${j.home_team} × ${j.away_team}</div>
+              <div style="font-size:10px;color:${isNext?'var(--green)':'#666'};margin-top:2px">${dataFmt?'📅 '+dataFmt:''} ${j.league_name!=='—'?'· '+j.league_name:''}</div>
+            </div>`;
           }).join('')}
-          ${ref.jogos.length>3?`<span style="color:#444;font-size:9px"> +${ref.jogos.length-3} jogo(s)</span>`:''}
-        </div>`:'<div style="font-size:10px;color:#444;margin-top:4px;font-style:italic">Sem jogos confirmados nos próximos 7 dias</div>'}
+          ${ref.jogos.length>3?`<div style="font-size:10px;color:#555;text-align:center">+${ref.jogos.length-3} jogo(s)</div>`:''}
+        </div>`:`<div style="margin-top:6px;font-size:11px;color:#444;font-style:italic;padding:4px 2px">Sem jogos nos próximos 7 dias</div>`}
       </div>
       <div class="pr-pos" style="color:#ff9100;border-color:rgba(255,145,0,.3);background:rgba(255,145,0,.08)">${ref.matches||'?'}🎮</div>
     </div>`).join('');
@@ -2406,6 +2410,21 @@ async function verStatsArbitro(id, nome){
       </div>
       ${avgY>=4?`<div style="background:rgba(255,23,68,.1);border:1px solid rgba(255,23,68,.3);border-radius:10px;padding:10px 14px;font-size:12px;color:var(--red);margin-bottom:12px">⚠️ Árbitro com histórico de <strong>muitos cartões</strong> — considere Over Cartões</div>`:''}
       ${Number(avg.penalties_per_game||0)>=0.4?`<div style="background:rgba(255,145,0,.1);border:1px solid rgba(255,145,0,.3);border-radius:10px;padding:10px 14px;font-size:12px;color:var(--orange);margin-bottom:12px">⚠️ Árbitro que costuma marcar pênaltis — média ${Number(avg.penalties_per_game||0).toFixed(1)}/jogo</div>`:''}
+      ${(d.proximos_jogos||[]).length?`
+      <div class="slabel" style="margin-bottom:8px;margin-top:4px">PRÓXIMOS JOGOS</div>
+      <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:16px">
+        ${(d.proximos_jogos||[]).map(j=>{
+          const dt=j.event_date?new Date(j.event_date):null;
+          const fmt=dt?dt.toLocaleDateString('pt-BR',{weekday:'short',day:'2-digit',month:'2-digit',timeZone:'America/Sao_Paulo'})+' '+dt.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit',timeZone:'America/Sao_Paulo'}):'';
+          return `<div style="background:rgba(57,255,20,.07);border:1px solid rgba(57,255,20,.2);border-radius:10px;padding:10px 14px;cursor:pointer" onclick="abrirJogo(${j.id})">
+            <div style="font-size:14px;font-weight:700;color:#eee">${j.home_team} × ${j.away_team}</div>
+            <div style="display:flex;gap:10px;margin-top:4px;flex-wrap:wrap">
+              ${fmt?`<span style="font-size:11px;color:var(--green)">📅 ${fmt}</span>`:''}
+              <span style="font-size:11px;color:#666">${j.league_name}</span>
+            </div>
+          </div>`;
+        }).join('')}
+      </div>`:''}
       <div class="slabel" style="margin-bottom:8px">ÚLTIMOS ${Math.min(jogos.length,10)} JOGOS</div>
       ${jogos.slice(0,10).map(j=>{
         // BSD /referees/{id}/matches/ — campos direto na raiz do item do jogo
