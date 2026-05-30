@@ -151,8 +151,31 @@ app.get('/api/debug/evento', async (req, res) => {
   } catch(e){ res.status(500).json({error: e.message}); }
 });
 // ─────────────────────────────────────────────
+// DIAGNÓSTICO: busca ID real de um time pelo nome
+// GET /api/debug/teamid?q=Flamengo
+// ─────────────────────────────────────────────
+app.get('/api/debug/teamid', async (req, res) => {
+  const q = req.query.q || '';
+  try {
+    const r = await fetch(
+      `https://sports.bzzoiro.com/api/teams/?search=${encodeURIComponent(q)}&limit=10`,
+      { headers: { Authorization: `Token ${BSD_TOKEN}` } }
+    ).then(r => r.json());
+    res.json({
+      query: q,
+      results: (r.results||[]).map(t => ({
+        id: t.id,
+        name: t.name,
+        country: t.country,
+        league: t.league || t.competition
+      }))
+    });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// ─────────────────────────────────────────────
 // DIAGNÓSTICO COMPLETO — GET /api/debug/lineup/:teamId
-// Testa o evento com full=true (mesma chamada que o modal usa) e extrai onde estão as lineups
+// Testa os 3 endpoints possíveis de lineup para os jogos mais recentes do time
 // ─────────────────────────────────────────────
 app.get('/api/debug/lineup/:teamId', async (req, res) => {
   const teamId = String(req.params.teamId);
@@ -781,15 +804,44 @@ app.get('/api/squad/:id', async (req, res) => {
 
       for (const { m, isHome } of allCandidates.slice(0, 8)) {
         try {
-          const resp = await fetch(
+          // Tenta 1: endpoint dedicado /lineups/
+          let resp = await fetch(
             `https://sports.bzzoiro.com/api/events/${m.id}/lineups/`,
             { headers: { Authorization: `Token ${BSD_TOKEN}` } }
           ).then(r => r.json());
 
-          // Descarta se a BSD retornou 404/erro
+          // Se /lineups/ retornou 404/erro, tenta o evento completo com full=true
           if (resp.error || resp.detail || resp.status === 404) {
-            console.log(`[squad] lineup 404/erro para evento ${m.id} — tentando próximo`);
-            continue;
+            const full = await fetch(
+              `https://sports.bzzoiro.com/api/events/${m.id}/?full=true`,
+              { headers: { Authorization: `Token ${BSD_TOKEN}` } }
+            ).then(r => r.json());
+
+            // LOG: ver todas as chaves que full=true retorna (uma vez só)
+            const fullKeys = Object.keys(full);
+            console.log(`[squad] full=true evento ${m.id} keys: ${fullKeys.join(',')}`);
+            // Procura qualquer chave que contenha "lineup" ou "squad" ou "team_lineup"
+            const lineupKey = fullKeys.find(k => k.toLowerCase().includes('lineup') || k.toLowerCase().includes('squad'));
+            if (lineupKey) console.log(`[squad] full=true lineup key="${lineupKey}": ${JSON.stringify(full[lineupKey]).slice(0,200)}`);
+
+            // Detecta lineups em qualquer estrutura possível
+            const lu2 = full.lineups || full.lineup || full.team_lineups || null;
+            const hasHome = lu2 && (lu2.home || lu2.home_team);
+            const hasAway = lu2 && (lu2.away || lu2.away_team);
+
+            if (lu2 && (hasHome || hasAway)) {
+              resp = {
+                lineup_status: lu2.lineup_status || full.lineup_status || 'predicted',
+                lineups: {
+                  home: lu2.home || lu2.home_team || null,
+                  away: lu2.away || lu2.away_team || null,
+                }
+              };
+              console.log(`[squad] lineup via full=true para evento ${m.id}`);
+            } else {
+              console.log(`[squad] lineup 404/erro para evento ${m.id} — tentando próximo`);
+              continue;
+            }
           }
 
           // Verifica se tem dados de lineup reais (pelo menos um jogador)
