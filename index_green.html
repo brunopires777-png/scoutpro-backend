@@ -648,15 +648,8 @@ td.nd{color:#555;font-size:13px}
 
   <!-- CLASSIFICAÇÃO -->
   <div class="page" id="page-classificacao">
-    <div class="filter-row">
-      <button class="lp-trigger" id="lp-class-btn" onclick="abrirLP('lp-class','carregarClassificacao()')">
-        <span class="lp-trigger-ico">🏆</span>
-        <span class="lp-trigger-text" id="lp-class-label">Selecione uma liga</span>
-        <span class="lp-trigger-arrow">▼</span>
-      </button>
-      <input type="hidden" id="sel-liga-class" value="">
-    </div>
-    <div id="class-area"><div class="empty"><div class="empty-icon">📊</div><p>Selecione uma liga acima</p></div></div>
+    <input type="hidden" id="sel-liga-class" value="">
+    <div id="class-area"><div class="loading"><div class="spinner-wrap"><div class="spinner"></div><div class="spinner-pct">0%</div></div><p>Carregando tabela...</p></div></div>
   </div>
 
 
@@ -833,7 +826,8 @@ function goPage(name,el){
   el.classList.add('active');
   if(name==='historico')renderHist();
   if(name==='jogos'&&!jogosCarregados)carregarJogos('hoje');
-  if(name==='arbitros'){carregarArbitrosProximos(null);}
+  if(name==='classificacao')carregarClassificacao();
+  if(name==='arbitros')carregarArbitrosProximos(null);
 }
 
 async function carregarLigas(){
@@ -992,7 +986,7 @@ async function selecionarTime(id,name,logo){
   document.getElementById('squad-area').innerHTML=`<div class="loading"><div class="spinner-wrap"><div class="spinner"></div><div class="spinner-pct">0%</div></div><p>Carregando elenco de <strong>${name}</strong>...</p></div>`;
   try{localStorage.removeItem('sp4_squad_'+id);}catch(e){}
   try{
-    const data=await apiFetch(`/api/squad/${id}`,`squad_${id}`,1800000); // 30min cache para ter lineup fresco
+    const data=await apiFetch(`/api/squad/${id}`,`squad_${id}`,600000); // 10min cache — atualiza escalações confirmadas rapidamente
     const players=data.players||[];
     const lineupStatus=data.lineup_status||null;
     if(!players.length){document.getElementById('squad-area').innerHTML=`<div class="empty"><div class="empty-icon">👤</div><p>Elenco não encontrado.</p></div>`;return;}
@@ -1000,12 +994,16 @@ async function selecionarTime(id,name,logo){
     players.forEach(p=>{(grupos[grupoPos(p.position)]||grupos.Outros).push(p);});
     let html='';
 
-    // Badge de escalação se disponível
-    if(lineupStatus==='confirmed'||lineupStatus==='predicted'){
-      html+=`<div style="text-align:center;margin-bottom:12px">
-        <span class="pill ${lineupStatus==='confirmed'?'g':''}" style="${lineupStatus==='predicted'?'background:rgba(255,215,64,.15);border-color:rgba(255,215,64,.4);color:#ffd740':''}">
-          ${lineupStatus==='confirmed'?'🟢 Escalação Confirmada':'🟡 Escalação Predita por IA'}
-        </span>
+    // Badge de escalação + botão Atualizar
+    {
+      const badgeHtml = lineupStatus==='confirmed'
+        ? `<span class="pill g">🟢 Escalação Confirmada</span>`
+        : lineupStatus==='predicted'
+          ? `<span class="pill" style="background:rgba(255,215,64,.15);border-color:rgba(255,215,64,.4);color:#ffd740">🟡 Escalação Predita por IA</span>`
+          : `<span class="pill" style="background:rgba(255,255,255,.06);border-color:rgba(255,255,255,.15);color:var(--text3)">⚪ Sem escalação disponível</span>`;
+      html+=`<div style="display:flex;align-items:center;justify-content:center;gap:8px;margin-bottom:14px;flex-wrap:wrap">
+        ${badgeHtml}
+        <button onclick="atualizarEscalacao(${id},'${esc(name)}')" style="background:rgba(57,255,20,.12);border:1px solid rgba(57,255,20,.35);color:#39ff14;border-radius:20px;padding:5px 14px;font-size:11px;font-weight:700;letter-spacing:.06em;cursor:pointer;white-space:nowrap">🔄 Atualizar Escalação</button>
       </div>`;
     }
 
@@ -1042,6 +1040,15 @@ async function selecionarTime(id,name,logo){
     </div>`;
     document.getElementById('squad-area').innerHTML=html;
   }catch(e){document.getElementById('squad-area').innerHTML=`<div class="err">Erro: ${e.message}</div>`;}
+}
+
+// Botão "Atualizar Escalação" — limpa cache e recarrega elenco
+async function atualizarEscalacao(id, name){
+  try{
+    // Limpa todos os caches relacionados ao squad deste time
+    Object.keys(localStorage).filter(k=>k.includes('squad_'+id)||k.includes('_squad_'+id)).forEach(k=>localStorage.removeItem(k));
+  }catch(e){}
+  await selecionarTime(id, name);
 }
 
 async function verStats(playerId,playerName,playerPhoto,playerPos){
@@ -2513,4 +2520,4 @@ document.addEventListener('keydown',e=>{if(e.key==='Enter'&&document.activeEleme
 
 
 </body>
-                                                </html>
+        </html>
