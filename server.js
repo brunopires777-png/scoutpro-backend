@@ -783,6 +783,15 @@ app.get('/api/squad/:id', async (req, res) => {
       const pastAway   = awayPast.status === 'fulfilled' ? (awayPast.value.results||[])  : [];
 
       // Candidatos futuros (ordenados pelo mais próximo)
+      // Log: mostra os eventos encontrados com seus IDs reais de time
+      const logEvs = (label, evs) => evs.slice(0,3).forEach(e =>
+        console.log(`[squad] ${label}: ev=${e.id} home_id=${e.home_team_id||e.home_team_obj?.id} away_id=${e.away_team_id||e.away_team_obj?.id} ${e.home_team}×${e.away_team}`)
+      );
+      logEvs('futuroHome', futureHome);
+      logEvs('futuroAway', futureAway);
+      logEvs('passadoHome', pastHome);
+      logEvs('passadoAway', pastAway);
+
       const futureCandidates = [
         ...futureHome.map(m => ({ m, isHome: true })),
         ...futureAway.map(m => ({ m, isHome: false }))
@@ -802,8 +811,20 @@ app.get('/api/squad/:id', async (req, res) => {
       let isHomeTeam = false;
       let lu = null;
 
-      for (const { m, isHome } of allCandidates.slice(0, 8)) {
+      for (const cand of allCandidates.slice(0, 8)) {
         try {
+          const m = cand.m;
+          // Valida que o time buscado realmente está neste evento
+          const evHomeId = String(m.home_team_id || m.home_team_obj?.id || '');
+          const evAwayId = String(m.away_team_id || m.away_team_obj?.id || '');
+          let isHome;
+          if (evHomeId === teamId)      isHome = true;
+          else if (evAwayId === teamId) isHome = false;
+          else {
+            console.log(`[squad] evento ${m.id} não pertence ao time ${teamId} (home=${evHomeId}, away=${evAwayId}) — pulando`);
+            continue;
+          }
+
           // Tenta 1: endpoint dedicado /lineups/
           let resp = await fetch(
             `https://sports.bzzoiro.com/api/events/${m.id}/lineups/`,
