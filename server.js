@@ -1177,8 +1177,32 @@ app.get('/api/arbitros/:id/stats', async (req, res) => {
       };
     }));
 
+    // Busca próximos jogos do árbitro (próximos 14 dias)
+    let proximosJogos = [];
+    try {
+      const futEvs = await bsd('/events/', {
+        date_from: today(),
+        date_to:   dayOffset(14),
+        limit:     500,
+        referee_id: id
+      });
+      // Se BSD não suporta referee_id como filtro, filtra manualmente
+      const all = futEvs.results || [];
+      proximosJogos = all
+        .filter(ev => String(ev.referee_id||ev.referee?.id||'') === String(id))
+        .map(ev => ({
+          id:          ev.id,
+          home_team:   ev.home_team,
+          away_team:   ev.away_team,
+          event_date:  ev.event_date,
+          league_name: ev.league?.name || ev.league_name || '—',
+        }))
+        .sort((a,b) => new Date(a.event_date) - new Date(b.event_date))
+        .slice(0, 5);
+    } catch(_) {}
+
     res.json({
-      detail, jogos,
+      detail, jogos, proximos_jogos: proximosJogos,
       averages: {
         yellow_per_game:    avgY ?? 0,
         red_per_game:       avgR ?? 0,
@@ -1261,7 +1285,15 @@ app.get('/api/arbitros/proximos', async (req, res) => {
       jogos:      jogosMap.get(r.id) || []
     })).filter(r => r.name !== '—');
 
-    arbitros.sort((a, b) => (b.matches || 0) - (a.matches || 0));
+    // Ordena: 1º os que têm jogos confirmados (por data do próximo jogo), depois por nº de partidas
+    arbitros.sort((a, b) => {
+      const aNext = a.jogos[0]?.event_date || null;
+      const bNext = b.jogos[0]?.event_date || null;
+      if (aNext && !bNext) return -1;
+      if (!aNext && bNext) return 1;
+      if (aNext && bNext) return new Date(aNext) - new Date(bNext);
+      return (b.matches || 0) - (a.matches || 0);
+    });
     res.json({ arbitros, total: arbitros.length });
   } catch (e) {
     console.error('[arbitros/proximos]', e.message);
@@ -1386,84 +1418,92 @@ app.get('/api/jogadores', async (req, res) => {
 
     const addPlayers = (list, teamOverride = null) => {
       for (const p of (list || [])) {
-        if (seen.has(p.id)) continue;
+        if (!p?.id || seen.has(p.id)) continue;
         seen.add(p.id);
-        // Garante que o time está sempre preenchido no resultado
         const enriched = { ...p };
-        if (teamOverride) enriched.current_team = teamOverride;
-        // Tenta popular current_team a partir de campos alternativos da BSD
-        if (!enriched.current_team) {
-          enriched.current_team = p.team || p.club || p.current_club || null;
+        // Garante current_team sempre preenchido
+        if (teamOverride)            enriched.current_team = teamOverride;
+        else if (!enriched.current_team) {
+          enriched.current_team =
+            p.team?.name ? p.team :
+            typeof p.team === 'string' ? { name: p.team } :
+            p.club?.name ? p.club :
+            typeof p.club === 'string' ? { name: p.club } : null;
         }
         results.push(enriched);
       }
     };
 
-    // Tentativa 1: busca direta por nome com limit alto
-    try {
-      const d = await bsd('/players/', { name, team_id, position, nationality_code, limit });
-      addPlayers(d.results);
-    } catch (_) {}
+    const teamQuery = (team_name || '').trim();
 
-    // Tentativa 2: se forneceu nome do time, busca pelo time e filtra por nome
-    // Detecta "nome time" da query completa se team_name não foi passado separado
-    const teamQuery = team_name || '';
-    if (teamQuery && results.length < 10) {
+    // ── CAMINHO A: tem nome de time → prioriza busca pelo time
+    if (teamQuery) {
+      // Passo 1: encontrar o time pelo nome (via standings — mais confiável para times BR)
+      const teamCandidates = new Map(); // id → name
       try {
-        const tData = await bsd('/teams/', { search: teamQuery, limit: 5 });
-        const teams = tData.results || [];
-        await Promise.all(teams.slice(0, 3).map(async team => {
-          try {
-            // Tenta endpoint de squad do time
-            const sq = await bsd(`/teams/${team.id}/squad/`, { limit: 100 });
-            const players = sq.results || sq.players || sq.squad || [];
-            const nameFilter = (name || '').toLowerCase();
-            const filtered = players.filter(p =>
-              !nameFilter || (p.name || p.display_name || '').toLowerCase().includes(nameFilter)
-            );
-            addPlayers(filtered, { id: team.id, name: team.name });
-          } catch (_) {
-            // Fallback: /players/?team=ID
-            try {
-              const pp = await bsd('/players/', { team: team.id, limit: 100 });
-              const nameFilter = (name || '').toLowerCase();
-              const filtered = (pp.results||[]).filter(p =>
-                !nameFilter || (p.name||'').toLowerCase().includes(nameFilter)
-              );
-              addPlayers(filtered, { id: team.id, name: team.name });
-            } catch (_) {}
-          }
-        }));
-      } catch (_) {}
-    }
-
-    // Tentativa 3: se ainda poucos resultados, busca via standings/events pelo nome do time
-    if (teamQuery && results.length < 3) {
-      try {
-        // Busca eventos recentes e extrai jogadores do time pelo nome
-        const df = new Date(Date.now() - 14*86400000).toISOString().slice(0,10);
-        const dt = new Date().toISOString().slice(0,10);
-        const evs = await bsd('/events/', { search: teamQuery, date_from: df, date_to: dt, limit: 10 });
-        const teamIds = new Set();
-        for (const ev of (evs.results||[])) {
-          const hn = (ev.home_team||'').toLowerCase();
-          const an = (ev.away_team||'').toLowerCase();
-          const tq = teamQuery.toLowerCase();
-          if (hn.includes(tq)) teamIds.add({ id: ev.home_team_id||ev.home_team_obj?.id, name: ev.home_team });
-          if (an.includes(tq)) teamIds.add({ id: ev.away_team_id||ev.away_team_obj?.id, name: ev.away_team });
-        }
-        for (const t of teamIds) {
-          if (!t.id) continue;
-          try {
-            const pp = await bsd('/players/', { team: t.id, limit: 100 });
-            const nameFilter = (name||'').toLowerCase();
-            const filtered = (pp.results||[]).filter(p =>
-              !nameFilter || (p.name||'').toLowerCase().includes(nameFilter)
-            );
-            addPlayers(filtered, { id: t.id, name: t.name });
-          } catch(_) {}
+        // Busca por standings que incluem times brasileiros
+        const stData = await bsd('/standings/', { search: teamQuery, limit: 20 });
+        for (const s of (stData.results||[])) {
+          const tid  = s.team_id || s.team?.id;
+          const tname = s.team_name || s.team?.name || s.team;
+          if (tid && tname && String(tname).toLowerCase().includes(teamQuery.toLowerCase()))
+            teamCandidates.set(String(tid), tname);
         }
       } catch(_) {}
+
+      // Busca também via /teams/?search=
+      try {
+        const tData = await bsd('/teams/', { search: teamQuery, limit: 10 });
+        for (const t of (tData.results||[])) {
+          if (t.id) teamCandidates.set(String(t.id), t.name);
+        }
+      } catch(_) {}
+
+      // Passo 2: para cada time encontrado, busca os jogadores e filtra por nome
+      const nameFilter = (name || '').toLowerCase();
+      await Promise.all([...teamCandidates.entries()].slice(0, 5).map(async ([tid, tname]) => {
+        const teamObj = { id: Number(tid), name: tname };
+        // Tenta /players/?team=ID (funciona para times europeus)
+        try {
+          const pp = await bsd('/players/', { team: tid, limit: 100 });
+          const filtered = (pp.results||[]).filter(p =>
+            !nameFilter || (p.name||p.display_name||'').toLowerCase().includes(nameFilter)
+          );
+          addPlayers(filtered, teamObj);
+        } catch(_) {}
+
+        // Tenta squad via eventos recentes se /players/ não deu resultado
+        if (results.length === 0) {
+          try {
+            const df = new Date(Date.now()-30*86400000).toISOString().slice(0,10);
+            const dt = new Date().toISOString().slice(0,10);
+            const [homeEvs, awayEvs] = await Promise.allSettled([
+              bsd('/events/', { home_team_id: tid, date_from: df, date_to: dt, limit: 5 }),
+              bsd('/events/', { away_team_id: tid, date_from: df, date_to: dt, limit: 5 }),
+            ]);
+            const evList = [
+              ...((homeEvs.status==='fulfilled'?homeEvs.value.results:[])||[]),
+              ...((awayEvs.status==='fulfilled'?awayEvs.value.results:[])||[]),
+            ].slice(0,3);
+            for (const ev of evList) {
+              const psData = await bsd('/player-stats/', { event: ev.id, limit: 30 });
+              const filtered = (psData.results||[]).filter(ps => {
+                const pname = (ps.player?.name||'').toLowerCase();
+                return !nameFilter || pname.includes(nameFilter);
+              }).map(ps => ps.player).filter(Boolean);
+              addPlayers(filtered, teamObj);
+            }
+          } catch(_) {}
+        }
+      }));
+    }
+
+    // ── CAMINHO B: só nome, sem time → busca direta por nome
+    if (!teamQuery || results.length < 3) {
+      try {
+        const d = await bsd('/players/', { name, team_id, position, nationality_code, limit });
+        addPlayers(d.results);
+      } catch (_) {}
     }
 
     res.json({ results, count: results.length });
