@@ -67,6 +67,9 @@ body{
 .tab .live-dot{position:absolute;top:4px;right:4px;width:6px;height:6px;border-radius:50%;background:var(--red);display:none;animation:pulse 1s infinite}
 
 .page{display:none}.page.active{display:block}
+/* Sub-abas dentro de Jogos & Predições */
+#subabas-jogos{gap:6px;border-bottom:1px solid rgba(255,255,255,0.06);padding-bottom:10px;margin-bottom:10px}
+#subabas-jogos .ftab{font-size:14px;padding:8px 20px;letter-spacing:.07em}
 
 /* ── STATUS BAR ── */
 .status-bar{
@@ -558,6 +561,7 @@ td.nd{color:#555;font-size:13px}
       <button class="tab" onclick="goPage('classificacao',this)">Tabela</button>
       <button class="tab" onclick="goPage('historico',this)">Histórico</button>
       <button class="tab" onclick="goPage('arbitros',this)">Árbitros</button>
+      <!-- page-predicoes sem tab: fundida em page-jogos via sub-abas -->
     </div>
   </div>
 
@@ -621,38 +625,50 @@ td.nd{color:#555;font-size:13px}
     <div id="step3"></div>
   </div>
 
-  <!-- JOGOS -->
+  <!-- JOGOS & PREDIÇÕES (unificado) -->
   <div class="page" id="page-jogos">
-    <div class="filter-row">
-      <button class="ftab active" onclick="filtroJogo('hoje',this)">Hoje</button>
-      <button class="ftab" onclick="filtroJogo('amanha',this)">Amanhã</button>
-      <button class="ftab" onclick="filtroJogo('semana',this)">Semana</button>
-      <button class="ftab" onclick="filtroJogo('ao-vivo',this)">🔴 Ao Vivo</button>
-      <button class="lp-trigger" id="lp-jogos-btn" onclick="abrirLP('lp-jogos','carregarJogos()')">
-        <span class="lp-trigger-ico">🏆</span>
-        <span class="lp-trigger-text" id="lp-jogos-label">Todas as ligas</span>
-        <span class="lp-trigger-arrow">▼</span>
-      </button>
-      <input type="hidden" id="sel-liga-jogos" value="">
+    <!-- Sub-abas: Jogos / Predições -->
+    <div class="filter-row" id="subabas-jogos" style="margin-bottom:10px;border-bottom:1px solid rgba(255,255,255,0.06);padding-bottom:10px">
+      <button class="ftab active" id="suba-jogos" onclick="subabaJogos('jogos',this)">⚽ Jogos</button>
+      <button class="ftab" id="suba-preds" onclick="subabaJogos('predicoes',this)">🤖 Predições</button>
     </div>
-    <div id="jogos-area"><div class="loading"><div class="spinner-wrap"><div class="spinner"></div><div class="spinner-pct">0%</div></div><p>Carregando jogos...</p></div></div>
+
+    <!-- Painel Jogos -->
+    <div id="painel-jogos">
+      <div class="filter-row">
+        <button class="ftab active" onclick="filtroJogo('hoje',this)">Hoje</button>
+        <button class="ftab" onclick="filtroJogo('amanha',this)">Amanhã</button>
+        <button class="ftab" onclick="filtroJogo('semana',this)">Semana</button>
+        <button class="ftab" onclick="filtroJogo('ao-vivo',this)">🔴 Ao Vivo</button>
+        <button class="lp-trigger" id="lp-jogos-btn" onclick="abrirLP('lp-jogos','carregarJogos()')">
+          <span class="lp-trigger-ico">🏆</span>
+          <span class="lp-trigger-text" id="lp-jogos-label">Todas as ligas</span>
+          <span class="lp-trigger-arrow">▼</span>
+        </button>
+        <input type="hidden" id="sel-liga-jogos" value="">
+      </div>
+      <div id="jogos-area"><div class="loading"><div class="spinner-wrap"><div class="spinner"></div><div class="spinner-pct">0%</div></div><p>Carregando jogos...</p></div></div>
+    </div>
+
+    <!-- Painel Predições -->
+    <div id="painel-predicoes" style="display:none">
+      <div class="filter-row">
+        <button class="ftab active" onclick="filtroPred('hoje',this)">Hoje</button>
+        <button class="ftab" onclick="filtroPred('amanha',this)">Amanhã</button>
+        <button class="ftab" onclick="filtroPred('semana',this)">Semana</button>
+        <button class="lp-trigger" id="lp-pred-btn" onclick="abrirLP('lp-pred','carregarPredicoes()')">
+          <span class="lp-trigger-ico">🏆</span>
+          <span class="lp-trigger-text" id="lp-pred-label">Todas as ligas</span>
+          <span class="lp-trigger-arrow">▼</span>
+        </button>
+        <input type="hidden" id="sel-liga-pred" value="">
+      </div>
+      <div id="pred-area"><div class="loading"><div class="spinner-wrap"><div class="spinner"></div><div class="spinner-pct">0%</div></div><p>Carregando predições...</p></div></div>
+    </div>
   </div>
 
-  <!-- PREDIÇÕES -->
-  <div class="page" id="page-predicoes">
-    <div class="filter-row">
-      <button class="ftab active" onclick="filtroPred('hoje',this)">Hoje</button>
-      <button class="ftab" onclick="filtroPred('amanha',this)">Amanhã</button>
-      <button class="ftab" onclick="filtroPred('semana',this)">Semana</button>
-      <button class="lp-trigger" id="lp-pred-btn" onclick="abrirLP('lp-pred','carregarPredicoes()')">
-        <span class="lp-trigger-ico">🏆</span>
-        <span class="lp-trigger-text" id="lp-pred-label">Todas as ligas</span>
-        <span class="lp-trigger-arrow">▼</span>
-      </button>
-      <input type="hidden" id="sel-liga-pred" value="">
-    </div>
-    <div id="pred-area"><div class="loading"><div class="spinner-wrap"><div class="spinner"></div><div class="spinner-pct">0%</div></div><p>Carregando predições...</p></div></div>
-  </div>
+  <!-- page-predicoes mantida vazia para compatibilidade (nunca exibida) -->
+  <div class="page" id="page-predicoes" style="display:none!important"></div>
 
 
 
@@ -818,9 +834,32 @@ async function checkStatus(){
 function updateCache(){const ci=document.getElementById('cache-info');if(ci)ci.innerHTML=`<span class="cache-pill">💾 ${DB.count()} em cache</span>`;}
 
 let ligasCache=[],jogoAtivo=null,jogoPeriodo='hoje',predPeriodo='hoje';
+let vbCarregados=false,vbMercado='1x2';
+
+// ── helper: detecta se um evento está ao vivo (BSD usa vários status diferentes)
+const LIVE_STATUSES = new Set(['inprogress','live','ongoing','in_progress','1h','2h','ht','halftime','extra_time','et','penalties']);
+function isLiveEv(j){
+  const s = (j.status||'').toLowerCase();
+  return LIVE_STATUSES.has(s)
+    || j.is_live === true
+    || (j.current_minute > 0 && s !== 'finished' && s !== 'ft' && s !== 'complete' && s !== 'cancelled');
+}
+function isFinishedEv(j){
+  const s = (j.status||'').toLowerCase();
+  return s==='finished'||s==='ft'||s==='complete'||j.period==='FT';
+}
 let _modalLiveIv=null;
 function pararModalLive(){ if(_modalLiveIv){clearInterval(_modalLiveIv);_modalLiveIv=null;} }
 let jogosCarregados=false,predCarregadas=false;
+
+function subabaJogos(aba, btn){
+  // Alterna entre painel Jogos e painel Predições dentro de page-jogos
+  document.getElementById('painel-jogos').style.display     = aba==='jogos'?'block':'none';
+  document.getElementById('painel-predicoes').style.display = aba==='predicoes'?'block':'none';
+  document.querySelectorAll('#subabas-jogos .ftab').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  if(aba==='predicoes'&&!predCarregadas) carregarPredicoes();
+}
 
 function goPage(name,el){
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
@@ -829,7 +868,6 @@ function goPage(name,el){
   el.classList.add('active');
   if(name==='historico')renderHist();
   if(name==='jogos'&&!jogosCarregados)carregarJogos('hoje');
-  if(name==='predicoes'&&!predCarregadas)carregarPredicoes();
   if(name==='arbitros'){carregarArbitrosProximos(null);}
 }
 
@@ -1230,8 +1268,8 @@ async function carregarJogos(periodo){
 }
 
 function renderMatchCard(j){
-  const live     = ['inprogress','live','ongoing','in_progress','1h','2h','ht'].includes((j.status||'').toLowerCase())||j.is_live===true||(j.current_minute>0&&j.status!=='finished'&&j.status!=='ft');
-  const finished = j.status==='finished'||j.status==='ft'||j.period==='FT';
+  const live     = isLiveEv(j);
+  const finished = isFinishedEv(j);
   const temPlacar= j.home_score!=null && j.away_score!=null;
   const liga     = j.league?.name||j.league_name||ligaNome(extrairLigaId(j));
 
@@ -1312,7 +1350,7 @@ function renderMatchCard(j){
 }
 
 function filtroJogo(p,btn){
-  document.querySelectorAll('#page-jogos .ftab').forEach(b=>b.classList.remove('active'));
+  document.querySelectorAll('#painel-jogos .ftab').forEach(b=>b.classList.remove('active'));
   btn.classList.add('active');carregarJogos(p);
 }
 
@@ -1335,8 +1373,7 @@ async function abrirJogo(id){
     renderMtResumo(data);
     // Auto-refresh a cada 30s se jogo estiver ao vivo
     pararModalLive();
-    const evStatus=data.evento?.status;
-    if(evStatus==='inprogress'||evStatus==='live'){
+    if(data.evento && isLiveEv(data.evento)){
       _modalLiveIv=setInterval(async()=>{
         try{
           const fresh=await apiFetch(`/api/jogos/${id}`,null,0);
@@ -1354,11 +1391,8 @@ async function abrirJogo(id){
 function preencherModalHeader(d){
   const ev=d.evento; if(!ev) return;
   // Detecta ao vivo por múltiplos sinais — a BSD v2 usa vários status diferentes
-  const liveStatuses = ['inprogress','live','ongoing','in_progress','1h','2h','ht'];
-  const live = liveStatuses.includes((ev.status||'').toLowerCase())
-    || ev.is_live===true
-    || (ev.current_minute!=null && ev.current_minute>0 && ev.status!=='finished');
-  const finished = ev.status==='finished'||ev.status==='ft'||ev.period==='FT'||ev.status==='complete';
+  const live     = isLiveEv(ev);
+  const finished = isFinishedEv(ev);
 
   // Liga e rodada
   document.getElementById('modal-liga').textContent = ev.league_name||ligaNome(ev.league_id)||'—';
@@ -1738,36 +1772,8 @@ async function carregarPredicoes(){
 
 function filtroPred(p,btn){
   predPeriodo=p;
-  document.querySelectorAll('#page-predicoes .ftab').forEach(b=>b.classList.remove('active'));
+  document.querySelectorAll('#painel-predicoes .ftab').forEach(b=>b.classList.remove('active'));
   btn.classList.add('active');carregarPredicoes();
-}
-
-/* ── VALUE BETS ── */
-async function carregarValueBets(){
-  vbCarregados=true;
-  const liga=document.getElementById('sel-liga-vb')?.value||'';
-  const el=document.getElementById('vb-area');
-  el.innerHTML=`<div class="loading"><div class="spinner-wrap"><div class="spinner"></div><div class="spinner-pct">0%</div></div><p>Carregando...</p></div>`;
-  try{
-    const data=await apiFetch(`/api/value-bets?market=${vbMercado}${liga?`&league_id=${liga}`:''}`,null,0);
-    const items=data.results||[];
-    if(!items.length){el.innerHTML=`<div class="empty"><div class="empty-icon">💰</div><p>Nenhum value bet encontrado</p></div>`;return;}
-    el.innerHTML=`<div class="vb-list">`+items.map(item=>{
-      const best=item.best_odds?.[0];if(!best)return '';
-      const edge=best.edge_pct||item.edge;
-      return `<div class="vb-card">
-        <div class="vb-conf">${item.confidence||'★'}</div>
-        <div class="vb-info"><div class="vb-match">${item.home_team} vs ${item.away_team}</div><div class="vb-meta">${ligaNome(item.league_id)} · ${fmtHora(item.event_date)} · ${best.outcome_name||''}</div></div>
-        <div class="vb-right"><div class="vb-odd">${best.decimal_odds?.toFixed(2)||'—'}</div><div class="vb-edge">${edge?'+'+edge.toFixed(1)+'%':''}</div></div>
-      </div>`;
-    }).filter(Boolean).join('')+`</div>`;
-  }catch(e){el.innerHTML=`<div class="err">❌ ${e.message}</div>`;}
-}
-
-function filtroVB(m,btn){
-  vbMercado=m;
-  document.querySelectorAll('#page-valuebets .ftab').forEach(b=>b.classList.remove('active'));
-  btn.classList.add('active');carregarValueBets();
 }
 
 /* ── VALUE BETS ── */
@@ -1973,11 +1979,15 @@ function abrirLP(lpId, callback){
   _lpCallback = callback;
   const overlay = document.getElementById('lp-overlay');
   overlay.classList.add('open');
+  const inp = document.getElementById('lp-search-inp');
+  if(inp){ inp.value=''; inp.focus(); }
   renderLPList('');
 }
 
 function fecharLP(){
   document.getElementById('lp-overlay').classList.remove('open');
+  const inp = document.getElementById('lp-search-inp');
+  if(inp) inp.value = '';
 }
 
 document.addEventListener('DOMContentLoaded', ()=>{
@@ -2530,7 +2540,9 @@ document.addEventListener('keydown',e=>{if(e.key==='Enter'&&document.activeEleme
 <div class="lp-overlay" id="lp-overlay">
   <div class="lp-sheet" id="lp-sheet">
     <div class="lp-handle" onclick="fecharLP()"></div>
-
+    <div class="lp-search">
+      <input type="text" id="lp-search-inp" placeholder="🔍 Buscar liga..." oninput="renderLPList(this.value.toLowerCase())" autocomplete="off">
+    </div>
     <div class="lp-list" id="lp-list"></div>
   </div>
 </div>
