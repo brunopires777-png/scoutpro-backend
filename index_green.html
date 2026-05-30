@@ -1964,15 +1964,12 @@ function abrirLP(lpId, callback){
   _lpCallback = callback;
   const overlay = document.getElementById('lp-overlay');
   overlay.classList.add('open');
-  const inp = document.getElementById('lp-search-inp');
-  if(inp){ inp.value=''; inp.focus(); }
   renderLPList('');
 }
 
 function fecharLP(){
   document.getElementById('lp-overlay').classList.remove('open');
-  const inp = document.getElementById('lp-search-inp');
-  if(inp) inp.value = '';
+
 }
 
 document.addEventListener('DOMContentLoaded', ()=>{
@@ -2525,13 +2522,10 @@ document.addEventListener('keydown',e=>{if(e.key==='Enter'&&document.activeEleme
 <div class="lp-overlay" id="lp-overlay">
   <div class="lp-sheet" id="lp-sheet">
     <div class="lp-handle" onclick="fecharLP()"></div>
-    <div class="lp-search">
-      <input type="text" id="lp-search-inp" placeholder="🔍 Buscar liga..." oninput="renderLPList(this.value.toLowerCase())" autocomplete="off">
-    </div>
     <div class="lp-list" id="lp-list"></div>
   </div>
 </div>
 
 
 </body>
-                                                                                                                     </html>
+          </html>
