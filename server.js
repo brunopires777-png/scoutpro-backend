@@ -782,42 +782,85 @@ app.get('/api/squad/:id', async (req, res) => {
     const teamId = String(req.params.id);
     let players = [];
 
-    // ── FASE 1: ELENCO via player-stats (fonte mais confiável para BR e EU)
-    // /api/players/?team=ID é DESCARTADO — a BSD retorna jogadores errados para times BR
-    // (ex: team=162 retorna São Paulo em vez de Palmeiras)
-    // Fonte primária: player-stats dos últimos 90 dias, filtrado pelo lado do evento
+    // ── FASE 1: ELENCO via lineup dos eventos (única fonte confiável na BSD)
+    // Diagnóstico confirmou: is_home=null, /players/?team=ID retorna time errado
+    // SOLUÇÃO: evento com full=true tem lineup separada por home/away — usa isso
     {
       const dateFrom = new Date(Date.now() - 90*86400000).toISOString().slice(0,10);
-      const dateTo   = new Date().toISOString().slice(0,10);
+      const dateTo   = new Date(Date.now() + 14*86400000).toISOString().slice(0,10);
 
-      // Busca jogos como mandante E como visitante (dois requests paralelos)
-      const [homeEv, awayEv] = await Promise.allSettled([
-        fetch(`https://sports.bzzoiro.com/api/events/?home_team_id=${teamId}&date_from=${dateFrom}&date_to=${dateTo}&limit=30`,
-          { headers: { Authorization: `Token ${BSD_TOKEN}` } }).then(r => r.json()),
-        fetch(`https://sports.bzzoiro.com/api/events/?away_team_id=${teamId}&date_from=${dateFrom}&date_to=${dateTo}&limit=30`,
-          { headers: { Authorization: `Token ${BSD_TOKEN}` } }).then(r => r.json()),
-      ]);
+      const evData = await fetch(
+        `https://sports.bzzoiro.com/api/events/?date_from=${dateFrom}&date_to=${dateTo}&limit=200`,
+        { headers: { Authorization: `Token ${BSD_TOKEN}` } }
+      ).then(r => r.json());
 
-      const homeList = homeEv.status === 'fulfilled' ? (homeEv.value.results||[]) : [];
-      const awayList = awayEv.status === 'fulfilled' ? (awayEv.value.results||[]) : [];
-      // Combina e dedup por id, pega os 6 mais recentes
-      const evSeen = new Set();
-      const teamEvents = [...homeList, ...awayList]
-        .sort((a,b) => new Date(b.event_date) - new Date(a.event_date))
-        .filter(ev => { if(evSeen.has(ev.id)) return false; evSeen.add(ev.id); return true; })
-        .slice(0, 6);
+      const evSeen2 = new Set();
+      const teamEvents = (evData.results||[])
+        .filter(ev => {
+          const hid = String(ev.home_team_id||ev.home_team_obj?.id||'');
+          const aid = String(ev.away_team_id||ev.away_team_obj?.id||'');
+          return (hid===teamId||aid===teamId) && !evSeen2.has(ev.id) && evSeen2.add(ev.id);
+        })
+        .sort((a,b) => new Date(b.event_date)-new Date(a.event_date))
+        .slice(0,8);
 
-      console.log(`[squad] via events: ${teamEvents.length} jogos para teamId=${teamId}`);
+      console.log(`[squad] eventos do time ${teamId}: ${teamEvents.length}`);
 
       const playersSeen = new Map();
-      await Promise.all(teamEvents.map(async ev => {
+
+      for (const ev of teamEvents) {
         try {
-          // Descobre qual lado do evento é o nosso time (home ou away)
-          const evHomeId = String(ev.home_team_id || ev.home_team_obj?.id || '');
-          const evAwayId = String(ev.away_team_id || ev.away_team_obj?.id || '');
-          // Valida que o time realmente está nesse evento antes de processar
-          if (evHomeId !== teamId && evAwayId !== teamId) return;
-          const evSide   = evHomeId === teamId ? 'home' : 'away';
+          const evHomeId = String(ev.home_team_id||ev.home_team_obj?.id||'');
+          const isHome   = evHomeId === teamId;
+
+          const full = await fetch(
+            `https://sports.bzzoiro.com/api/events/${ev.id}/?full=true`,
+            { headers: { Authorization: `Token ${BSD_TOKEN}` } }
+          ).then(r => r.json());
+
+          const lu   = full.lineups || full.lineup;
+          const side = isHome ? lu?.home : lu?.away;
+          if (!side) { console.log(`[squad] sem lineup lado para ev ${ev.id} isHome=${isHome}`); continue; }
+
+          const allInLineup = [...(side.players||[]), ...(side.substitutes||[])];
+          if (!allInLineup.length) continue;
+
+          console.log(`[squad] lineup ev ${ev.id} (${ev.home_team}x${ev.away_team}): ${allInLineup.length} jogadores isHome=${isHome}`);
+
+          for (const p of allInLineup) {
+            // BSD usa player_id, api_id ou id dependendo do endpoint
+            const pid = String(p.player_id||p.api_id||p.player?.id||p.id||'');
+            if (!pid||pid==='undefined'||pid==='null'||playersSeen.has(pid)) continue;
+            playersSeen.set(pid, {
+              id:            pid,
+              name:          p.name||p.player?.name||'—',
+              position:      p.position||p.player?.position||'—',
+              jersey_number: p.jersey_number||String(p.jersey_number||''),
+              photo:         `https://sports.bzzoiro.com/img/player/${pid}/`
+            });
+          }
+
+          if (playersSeen.size >= 22) break;
+        } catch(e) { console.log(`[squad] erro ev ${ev.id}:`, e.message); }
+      }
+
+      players = Array.from(playersSeen.values());
+      console.log(`[squad] via lineup: ${players.length} jogadores`);
+
+      // Fallback final: player-stats com nome da lineup para filtrar
+      if (players.length === 0 && teamEvents.length > 0) {
+        const ev = teamEvents[0];
+        try {
+          const evHomeId = String(ev.home_team_id||ev.home_team_obj?.id||'');
+          const isHome   = evHomeId === teamId;
+          const full = await fetch(
+            `https://sports.bzzoiro.com/api/events/${ev.id}/?full=true`,
+            { headers: { Authorization: `Token ${BSD_TOKEN}` } }
+          ).then(r => r.json());
+          const lu   = full.lineups||full.lineup;
+          const side = isHome ? lu?.home : lu?.away;
+          const luNames = new Set([...(side?.players||[]),...(side?.substitutes||[])]
+            .map(p=>(p.name||'').toLowerCase().trim()).filter(Boolean));
 
           const psData = await fetch(
             `https://sports.bzzoiro.com/api/player-stats/?event=${ev.id}&limit=50`,
@@ -825,63 +868,19 @@ app.get('/api/squad/:id', async (req, res) => {
           ).then(r => r.json());
 
           for (const ps of (psData.results||[])) {
-            const pid = String(ps.player?.id || ps.player_id || '');
-            if (!pid || pid === 'undefined' || pid === 'null' || playersSeen.has(pid)) continue;
-
-            // BSD v2 não retorna team_id na raiz — inferir pelo lado do evento
-            // Estratégia: aceita TODOS os jogadores e depois deduplica
-            // O filtro real é: se o evento foi buscado via home_team_id=X, todos os
-            // player-stats desse evento pertencem a X OU ao adversário.
-            // Para separar: tenta team_id no ps, senão aceita tudo e confia na dedup
-            const ptid = String(
-              ps.team_id ||
-              ps.player?.team_id ||
-              ps.player?.current_team_id ||
-              ps.player?.teams?.[0]?.id ||
-              ''
-            );
-
-            // Filtra pelo lado do evento
-            // is_home: true=mandante, false=visitante, undefined=BSD não retornou
-            const expectedHome = evSide === 'home';
-            const hasIsHome    = ps.is_home !== undefined && ps.is_home !== null;
-            const isOurSide    = hasIsHome
-              ? ps.is_home === expectedHome          // BSD retornou is_home — filtra direto
-              : ps.side === evSide || ptid === teamId; // fallback: side string ou team_id
-            const teamMatch    = isOurSide;
-
-            if (teamMatch) {
-              playersSeen.set(pid, {
-                id:            pid,
-                name:          ps.player?.name || ps.player?.display_name || '—',
-                position:      ps.player?.position || '—',
-                jersey_number: ps.player?.jersey_number || '',
-                photo:         `https://sports.bzzoiro.com/img/player/${pid}/`
-              });
-            }
+            const pid = String(ps.player?.id||'');
+            const pnm = (ps.player?.name||'').toLowerCase().trim();
+            if (!pid||playersSeen.has(pid)) continue;
+            if (luNames.size > 0 && !luNames.has(pnm) &&
+                ![...luNames].some(ln=>ln.split(' ')[0]===pnm.split(' ')[0])) continue;
+            playersSeen.set(pid, {
+              id: pid, name: ps.player?.name||'—',
+              position: ps.player?.position||'—', jersey_number: '',
+              photo: `https://sports.bzzoiro.com/img/player/${pid}/`
+            });
           }
-        } catch(_) {}
-      }));
-      players = Array.from(playersSeen.values());
-      console.log(`[squad] via player-stats: ${players.length} jogadores`);
-
-      // Se player-stats não encontrou nada, tenta /api/players/?team= como último recurso
-      // (funciona para alguns times europeus onde a BSD tem IDs corretos)
-      if (players.length === 0) {
-        try {
-          const r = await fetch(`https://sports.bzzoiro.com/api/players/?team=${teamId}&limit=100`, {
-            headers: { Authorization: `Token ${BSD_TOKEN}` }
-          }).then(r => r.json());
-          if ((r.results||[]).length > 0) {
-            players = r.results.map(p => ({
-              id:            String(p.id),
-              name:          p.name || p.display_name || '—',
-              position:      p.position || '—',
-              jersey_number: p.jersey_number || '',
-              photo:         `https://sports.bzzoiro.com/img/player/${p.id}/`
-            }));
-            console.log(`[squad] via players fallback: ${players.length}`);
-          }
+          players = Array.from(playersSeen.values());
+          console.log(`[squad] via ps+lineup fallback: ${players.length} jogadores`);
         } catch(_) {}
       }
     }
