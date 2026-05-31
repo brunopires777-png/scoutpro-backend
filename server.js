@@ -196,6 +196,45 @@ app.get('/api/debug/teamid', async (req, res) => {
 // DIAGNÓSTICO COMPLETO — GET /api/debug/lineup/:teamId
 // Testa os 3 endpoints possíveis de lineup para os jogos mais recentes do time
 // ─────────────────────────────────────────────
+// GET /api/debug/team?q=Palmeiras — mostra qual ID a busca retorna e de onde vem
+app.get('/api/debug/team', async (req, res) => {
+  const q = (req.query.q||'').toLowerCase();
+  const norm = s => (s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+  const term = norm(q);
+  const result = { query: q, events_found: [], standings_found: [], players_found: [] };
+
+  // O que a busca de eventos retorna
+  try {
+    const df = new Date(Date.now()-60*86400000).toISOString().slice(0,10);
+    const dt = new Date(Date.now()+14*86400000).toISOString().slice(0,10);
+    const evData = await fetch(
+      `https://sports.bzzoiro.com/api/events/?date_from=${df}&date_to=${dt}&limit=200`,
+      { headers: { Authorization: `Token ${BSD_TOKEN}` } }
+    ).then(r => r.json());
+    for (const ev of (evData.results||[])) {
+      const hid = ev.home_team_id || ev.home_team_obj?.id;
+      const aid = ev.away_team_id || ev.away_team_obj?.id;
+      if (norm(ev.home_team||'').includes(term))
+        result.events_found.push({ side:'home', team: ev.home_team, id: hid, home_team_id: ev.home_team_id, home_team_obj_id: ev.home_team_obj?.id, event_id: ev.id });
+      if (norm(ev.away_team||'').includes(term))
+        result.events_found.push({ side:'away', team: ev.away_team, id: aid, away_team_id: ev.away_team_id, away_team_obj_id: ev.away_team_obj?.id, event_id: ev.id });
+    }
+  } catch(e) { result.events_error = e.message; }
+
+  // O que /players/?team=ID retorna para os IDs encontrados
+  const ids = [...new Set(result.events_found.map(e=>e.id).filter(Boolean))].slice(0,3);
+  result.team_ids_found = ids;
+  for (const id of ids) {
+    try {
+      const r = await fetch(`https://sports.bzzoiro.com/api/players/?team=${id}&limit=5`,
+        { headers: { Authorization: `Token ${BSD_TOKEN}` } }).then(r => r.json());
+      result.players_found.push({ team_id: id, count: (r.results||[]).length, sample: (r.results||[]).slice(0,3).map(p=>p.name) });
+    } catch(e) { result.players_found.push({ team_id: id, error: e.message }); }
+  }
+
+  res.json(result);
+});
+
 app.get('/api/debug/lineup/:teamId', async (req, res) => {
   const teamId = String(req.params.teamId);
   const df = new Date().toISOString().slice(0,10);
