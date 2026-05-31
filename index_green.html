@@ -1850,8 +1850,9 @@ function initials(n){return(n||'?').split(' ').map(w=>w[0]).join('').substring(0
 function esc(s){return(s||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'");}
 function fmtTs(ts){if(!ts)return'';const d=new Date(ts);return`${d.getDate().toString().padStart(2,'0')}/${(d.getMonth()+1).toString().padStart(2,'0')} ${d.getHours().toString().padStart(2,'0')}:${d.getMinutes().toString().padStart(2,'0')}`;}
 function fmtHora(iso){if(!iso)return'—';try{return new Date(iso).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit',timeZone:'America/Sao_Paulo'});}catch{return iso.slice(11,16);}}
-function today(){return new Date().toISOString().slice(0,10);}
-function offsetData(n){const d=new Date();d.setDate(d.getDate()+n);return d.toISOString().slice(0,10);}
+function _brDate(d){const br=new Date(d.getTime()-3*60*60*1000);return br.toISOString().slice(0,10);}
+function today(){return _brDate(new Date());}
+function offsetData(n){const d=new Date();d.setDate(d.getDate()+n);return _brDate(d);}
 function isGoleiro(pos){if(!pos)return false;const p=pos.toLowerCase();return p==='goalkeeper'||p==='g'||p.includes('goleiro')||p.includes('keeper');}
 function grupoPos(pos){if(!pos)return'Outros';const p=pos.toLowerCase();if(p==='g'||p.includes('goalkeeper')||p.includes('goleiro'))return'Goleiros';if(p==='d'||p.includes('defender')||p.includes('back'))return'Defensores';if(p==='m'||p.includes('midfielder'))return'Meias';if(p==='f'||p.includes('forward')||p.includes('attacker')||p.includes('striker'))return'Atacantes';return'Outros';}
 function posEmoji(g){return{Goleiros:'🧤',Defensores:'🛡️',Meias:'⚙️',Atacantes:'🎯',Outros:'⚽'}[g]||'⚽';}
