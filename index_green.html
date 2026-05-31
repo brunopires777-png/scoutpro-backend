@@ -988,7 +988,8 @@ async function selecionarTime(id,name,logo){
   selTeam={id,name,logo};
   const btnR=document.getElementById('btn-reload-squad');
   if(btnR){btnR.style.display='inline-flex';btnR.setAttribute('data-id',id);btnR.setAttribute('data-name',name||'');}
-  document.getElementById('step1').style.display='none';
+  // Mantém busca visível — esconde só os resultados anteriores
+  document.getElementById('step2-results')?.remove();
   const destBox=document.getElementById('dest-box');
   if(destBox) destBox.style.display='none';
   document.getElementById('step2').style.display='block';
@@ -1003,7 +1004,17 @@ async function selecionarTime(id,name,logo){
     const data=await apiFetch(`/api/squad/${id}`,cacheKey,43200000);
     const players=data.players||[];
     const lineupStatus=data.lineup_status||null;
-    if(!players.length){document.getElementById('squad-area').innerHTML=`<div class="empty"><div class="empty-icon">👤</div><p>Elenco não encontrado.</p></div>`;return;}
+    if(!players.length){
+      document.getElementById('squad-area').innerHTML=`<div class="empty">
+        <div class="empty-icon" style="font-size:2rem">⚠️</div>
+        <p style="font-weight:700;margin-bottom:6px">Elenco não disponível</p>
+        <p style="font-size:12px;color:var(--text3);max-width:280px;margin:0 auto;line-height:1.5">
+          Os dados deste time não estão disponíveis no momento na fonte de dados (BSD).<br><br>
+          <span style="color:var(--green);cursor:pointer;text-decoration:underline;font-weight:700" onclick="forcarReloadElenco()">🔄 Tentar novamente</span>
+        </p>
+      </div>`;
+      return;
+    }
     const grupos={Goleiros:[],Defensores:[],Meias:[],Atacantes:[],Outros:[]};
     players.forEach(p=>{(grupos[grupoPos(p.position)]||grupos.Outros).push(p);});
     let html='';
