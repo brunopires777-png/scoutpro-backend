@@ -718,26 +718,11 @@ app.get('/api/squad/:id', async (req, res) => {
     const teamId = String(req.params.id);
     let players = [];
 
-    // ── FASE 1: ELENCO ──────────────────────────────────────────
-    // Tentativa A: /api/players/?team=ID  (funciona para times europeus)
-    try {
-      const r = await fetch(`https://sports.bzzoiro.com/api/players/?team=${teamId}&limit=100`, {
-        headers: { Authorization: `Token ${BSD_TOKEN}` }
-      }).then(r => r.json());
-      if ((r.results||[]).length > 0) {
-        players = r.results.map(p => ({
-          id:             String(p.id),
-          name:           p.name || p.display_name || '—',
-          position:       p.position || '—',
-          jersey_number:  p.jersey_number || '',
-          photo:          `https://sports.bzzoiro.com/img/player/${p.id}/`
-        }));
-        console.log(`[squad] via players: ${players.length}`);
-      }
-    } catch(_) {}
-
-    // Tentativa B: via player-stats dos últimos 90 dias (times brasileiros e demais)
-    if (!players.length) {
+    // ── FASE 1: ELENCO via player-stats (fonte mais confiável para BR e EU)
+    // /api/players/?team=ID é DESCARTADO — a BSD retorna jogadores errados para times BR
+    // (ex: team=162 retorna São Paulo em vez de Palmeiras)
+    // Fonte primária: player-stats dos últimos 90 dias, filtrado pelo lado do evento
+    {
       const dateFrom = new Date(Date.now() - 90*86400000).toISOString().slice(0,10);
       const dateTo   = new Date().toISOString().slice(0,10);
 
@@ -815,6 +800,26 @@ app.get('/api/squad/:id', async (req, res) => {
       }));
       players = Array.from(playersSeen.values());
       console.log(`[squad] via player-stats: ${players.length} jogadores`);
+
+      // Se player-stats não encontrou nada, tenta /api/players/?team= como último recurso
+      // (funciona para alguns times europeus onde a BSD tem IDs corretos)
+      if (players.length === 0) {
+        try {
+          const r = await fetch(`https://sports.bzzoiro.com/api/players/?team=${teamId}&limit=100`, {
+            headers: { Authorization: `Token ${BSD_TOKEN}` }
+          }).then(r => r.json());
+          if ((r.results||[]).length > 0) {
+            players = r.results.map(p => ({
+              id:            String(p.id),
+              name:          p.name || p.display_name || '—',
+              position:      p.position || '—',
+              jersey_number: p.jersey_number || '',
+              photo:         `https://sports.bzzoiro.com/img/player/${p.id}/`
+            }));
+            console.log(`[squad] via players fallback: ${players.length}`);
+          }
+        } catch(_) {}
+      }
     }
 
     // ── FASE 2: LINEUP ──────────────────────────────────────────
@@ -1518,38 +1523,43 @@ app.get('/api/jogadores', async (req, res) => {
       const nameFilter = (name || '').toLowerCase();
       await Promise.all([...teamCandidates.entries()].slice(0, 5).map(async ([tid, tname]) => {
         const teamObj = { id: Number(tid), name: tname };
-        // Tenta /players/?team=ID (funciona para times europeus)
+        // Busca via eventos recentes + player-stats (fonte correta para times BR)
+        // /players/?team=ID é IGNORADO — BSD retorna times errados para BR
         try {
-          const pp = await bsd('/players/', { team: tid, limit: 100 });
-          const filtered = (pp.results||[]).filter(p =>
-            !nameFilter || (p.name||p.display_name||'').toLowerCase().includes(nameFilter)
-          );
-          addPlayers(filtered, teamObj);
-        } catch(_) {}
+          const df = new Date(Date.now()-60*86400000).toISOString().slice(0,10);
+          const dt = new Date().toISOString().slice(0,10);
+          // Busca eventos sem filtro e filtra manualmente (BSD ignora home_team_id)
+          const evData = await bsd('/events/', { date_from: df, date_to: dt, limit: 200 });
+          const tidStr = String(tid);
+          const teamEvs = (evData.results||[]).filter(ev => {
+            const hid = String(ev.home_team_id||ev.home_team_obj?.id||'');
+            const aid = String(ev.away_team_id||ev.away_team_obj?.id||'');
+            return hid === tidStr || aid === tidStr;
+          }).slice(0, 5);
 
-        // Tenta squad via eventos recentes se /players/ não deu resultado
-        if (results.length === 0) {
-          try {
-            const df = new Date(Date.now()-30*86400000).toISOString().slice(0,10);
-            const dt = new Date().toISOString().slice(0,10);
-            const [homeEvs, awayEvs] = await Promise.allSettled([
-              bsd('/events/', { home_team_id: tid, date_from: df, date_to: dt, limit: 5 }),
-              bsd('/events/', { away_team_id: tid, date_from: df, date_to: dt, limit: 5 }),
-            ]);
-            const evList = [
-              ...((homeEvs.status==='fulfilled'?homeEvs.value.results:[])||[]),
-              ...((awayEvs.status==='fulfilled'?awayEvs.value.results:[])||[]),
-            ].slice(0,3);
-            for (const ev of evList) {
-              const psData = await bsd('/player-stats/', { event: ev.id, limit: 30 });
-              const filtered = (psData.results||[]).filter(ps => {
+          console.log(`[jogadores] time ${tid} (${tname}): ${teamEvs.length} eventos encontrados`);
+
+          const seen2 = new Set();
+          for (const ev of teamEvs) {
+            try {
+              const evHomeId = String(ev.home_team_id||ev.home_team_obj?.id||'');
+              const isHomeTeam = evHomeId === tidStr;
+              const psData = await bsd('/player-stats/', { event: ev.id, limit: 50 });
+              for (const ps of (psData.results||[])) {
+                const pid = String(ps.player?.id||ps.player_id||'');
+                if (!pid || seen2.has(pid)) continue;
+                // Filtra pelo lado correto
+                const hasIsHome = ps.is_home !== undefined && ps.is_home !== null;
+                const isOurSide = hasIsHome ? ps.is_home === isHomeTeam : true;
+                if (!isOurSide) continue;
                 const pname = (ps.player?.name||'').toLowerCase();
-                return !nameFilter || pname.includes(nameFilter);
-              }).map(ps => ps.player).filter(Boolean);
-              addPlayers(filtered, teamObj);
-            }
-          } catch(_) {}
-        }
+                if (nameFilter && !pname.includes(nameFilter)) continue;
+                seen2.add(pid);
+                addPlayers([ps.player].filter(Boolean), teamObj);
+              }
+            } catch(_) {}
+          }
+        } catch(_) {}
       }));
     }
 
