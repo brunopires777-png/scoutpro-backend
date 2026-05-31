@@ -614,7 +614,10 @@ td.nd{color:#555;font-size:13px}
           <div class="card-title" id="lbl-team">Elenco</div>
           <div id="lbl-sub" style="font-size:11px;color:var(--text2);margin-top:2px">Selecione o jogador</div>
         </div>
-        <button class="btn btn-ghost btn-sm" onclick="voltarStep1()">← Voltar</button>
+        <div style="display:flex;gap:8px;align-items:center">
+          <button id="btn-reload-squad" onclick="forcarReloadElenco()" style="display:none;background:rgba(57,255,20,.12);border:1px solid rgba(57,255,20,.3);color:#39ff14;border-radius:16px;padding:5px 12px;font-size:12px;font-weight:700;cursor:pointer">🔄 Recarregar</button>
+          <button class="btn btn-ghost btn-sm" onclick="voltarStep1()">← Voltar</button>
+        </div>
       </div>
       <div id="squad-area"></div>
     </div>
@@ -983,6 +986,8 @@ async function buscarTime(){
 
 async function selecionarTime(id,name,logo){
   selTeam={id,name,logo};
+  const btnR=document.getElementById('btn-reload-squad');
+  if(btnR){btnR.style.display='inline-flex';btnR.setAttribute('data-id',id);btnR.setAttribute('data-name',name||'');}
   document.getElementById('step1').style.display='none';
   const destBox=document.getElementById('dest-box');
   if(destBox) destBox.style.display='none';
@@ -993,7 +998,9 @@ async function selecionarTime(id,name,logo){
   document.getElementById('squad-area').innerHTML=`<div class="loading"><div class="spinner-wrap"><div class="spinner"></div><div class="spinner-pct">0%</div></div><p>Carregando elenco de <strong>${name}</strong>...</p></div>`;
   try{localStorage.removeItem('sp4_squad_'+id);}catch(e){}
   try{
-    const data=await apiFetch(`/api/squad/${id}`,`squad_${id}`,43200000); // 12h cache — botão Atualizar força refresh manual
+    // Cache de 12h — parâmetro force=1 pula o cache no backend
+    const cacheKey = `squad_${id}`;
+    const data=await apiFetch(`/api/squad/${id}`,cacheKey,43200000);
     const players=data.players||[];
     const lineupStatus=data.lineup_status||null;
     if(!players.length){document.getElementById('squad-area').innerHTML=`<div class="empty"><div class="empty-icon">👤</div><p>Elenco não encontrado.</p></div>`;return;}
@@ -1047,6 +1054,23 @@ async function selecionarTime(id,name,logo){
     </div>`;
     document.getElementById('squad-area').innerHTML=html;
   }catch(e){document.getElementById('squad-area').innerHTML=`<div class="err">Erro: ${e.message}</div>`;}
+}
+
+// Força reload do elenco limpando cache — disponível sempre no header
+async function forcarReloadElenco(idArg, nameArg){
+  const btn = document.getElementById('btn-reload-squad');
+  const id   = idArg   || (btn && btn.getAttribute('data-id'))   || selTeam?.id;
+  const name = nameArg || (btn && btn.getAttribute('data-name')) || selTeam?.name;
+  if(!id) return;
+  try{
+    const toRemove=[];
+    for(let i=0;i<localStorage.length;i++){
+      const k=localStorage.key(i);
+      if(k&&k.includes('squad_'+id)) toRemove.push(k);
+    }
+    toRemove.forEach(k=>localStorage.removeItem(k));
+  }catch(e){}
+  await selecionarTime(id, name);
 }
 
 // Botão "Atualizar Escalação" — limpa cache DB e recarrega elenco
