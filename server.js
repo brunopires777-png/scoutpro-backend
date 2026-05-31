@@ -215,9 +215,9 @@ app.get('/api/debug/team', async (req, res) => {
       const hid = ev.home_team_id || ev.home_team_obj?.id;
       const aid = ev.away_team_id || ev.away_team_obj?.id;
       if (norm(ev.home_team||'').includes(term))
-        result.events_found.push({ side:'home', team: ev.home_team, id: hid, home_team_id: ev.home_team_id, home_team_obj_id: ev.home_team_obj?.id, event_id: ev.id });
+        result.events_found.push({ side:'home', team: ev.home_team, id: hid, home_team_id: ev.home_team_id, home_team_obj_id: ev.home_team_obj?.id, home_team_obj_full: ev.home_team_obj, event_id: ev.id, event_date: ev.event_date?.slice(0,10) });
       if (norm(ev.away_team||'').includes(term))
-        result.events_found.push({ side:'away', team: ev.away_team, id: aid, away_team_id: ev.away_team_id, away_team_obj_id: ev.away_team_obj?.id, event_id: ev.id });
+        result.events_found.push({ side:'away', team: ev.away_team, id: aid, away_team_id: ev.away_team_id, away_team_obj_id: ev.away_team_obj?.id, away_team_obj_full: ev.away_team_obj, event_id: ev.id, event_date: ev.event_date?.slice(0,10) });
     }
   } catch(e) { result.events_error = e.message; }
 
