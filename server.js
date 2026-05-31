@@ -55,13 +55,19 @@ async function bsd(path, params = {}) {
 }
 
 // Helper: data de hoje no formato YYYY-MM-DD (UTC)
+// Retorna data no fuso de Brasília (UTC-3) — evita bug de "amanhã = segunda" à noite
+function toBrasiliaDateStr(d) {
+  // Subtrai 3h para converter UTC → Brasília, depois pega YYYY-MM-DD
+  const br = new Date(d.getTime() - 3 * 60 * 60 * 1000);
+  return br.toISOString().slice(0, 10);
+}
 function today() {
-  return new Date().toISOString().slice(0, 10);
+  return toBrasiliaDateStr(new Date());
 }
 function dayOffset(n) {
   const d = new Date();
   d.setDate(d.getDate() + n);
-  return d.toISOString().slice(0, 10);
+  return toBrasiliaDateStr(d);
 }
 
 
@@ -747,12 +753,14 @@ app.get('/api/squad/:id', async (req, res) => {
               ''
             );
 
-            // Filtra pelo lado do evento — ps.is_home indica se é mandante
-            // evSide diz qual lado é o time buscado
-            const isOurSide = ps.is_home === (evSide === 'home') ||
-                              ps.side    === evSide ||
-                              ptid       === teamId;
-            const teamMatch = isOurSide || ptid === teamId;
+            // Filtra pelo lado do evento
+            // is_home: true=mandante, false=visitante, undefined=BSD não retornou
+            const expectedHome = evSide === 'home';
+            const hasIsHome    = ps.is_home !== undefined && ps.is_home !== null;
+            const isOurSide    = hasIsHome
+              ? ps.is_home === expectedHome          // BSD retornou is_home — filtra direto
+              : ps.side === evSide || ptid === teamId; // fallback: side string ou team_id
+            const teamMatch    = isOurSide;
 
             if (teamMatch) {
               playersSeen.set(pid, {
@@ -871,7 +879,9 @@ app.get('/api/squad/:id', async (req, res) => {
         lineupStatus = lu.lineup_status || lu.status || null;
 
         // Jogo ao vivo ou encerrado = escalação confirmada de fato
+        // confirmed → titulares ficam verdes; banco fica amarelo (predito)
         if (matchIsLive || matchIsFinished) lineupStatus = 'confirmed';
+        console.log(`[squad] evStatus="${evStatus}" isLive=${matchIsLive} isFinished=${matchIsFinished} → lineupStatus=${lineupStatus}`);
 
         console.log(`[squad] lineup_status=${lineupStatus} evStatus=${evStatus} isLive=${matchIsLive} isFinished=${matchIsFinished}`);
 
@@ -910,10 +920,11 @@ app.get('/api/squad/:id', async (req, res) => {
             if (nm) allLuNames.add(nm);
           });
 
-          // confirmed = titulares quando lineup_status==='confirmed'
-          // predicted = qualquer jogador listado quando lineup_status==='predicted'
+          // Se jogo ao vivo ou encerrado: titulares = confirmed, banco = predicted
+          // Se apenas predito: todos = predicted (amarelo)
           if (lineupStatus === 'confirmed') {
             starterPids.forEach(pid => confirmedIds.add(pid));
+            // banco fica como predicted (lineupPlayerIds já tem todos)
           }
 
           console.log(`[squad] lineup IDs: ${lineupPlayerIds.size} (starters: ${starterPids.size}), names: ${allLuNames.size}`);
