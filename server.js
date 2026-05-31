@@ -606,7 +606,7 @@ app.get('/api/teams', async (req, res) => {
   try {
     const { q } = req.query;
     if (!q) return res.status(400).json({ error: 'Parâmetro q obrigatório' });
-    const norm = s => (s||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'');
+    const norm = s => (s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
     const term = norm(q);
     const seen = new Map();
 
@@ -619,10 +619,13 @@ app.get('/api/teams', async (req, res) => {
     ).then(r => r.json());
 
     (evData.results || []).forEach(ev => {
-      if (norm(ev.home_team).includes(term) && ev.home_team_id && !seen.has(ev.home_team_id))
-        seen.set(ev.home_team_id, { id: ev.home_team_id, name: ev.home_team, country: ev.league?.country||'' });
-      if (norm(ev.away_team).includes(term) && ev.away_team_id && !seen.has(ev.away_team_id))
-        seen.set(ev.away_team_id, { id: ev.away_team_id, name: ev.away_team, country: ev.league?.country||'' });
+      // BSD v2: ID real pode estar em home_team_obj.id quando home_team_id é null
+      const hid = ev.home_team_id || ev.home_team_obj?.id;
+      const aid = ev.away_team_id || ev.away_team_obj?.id;
+      if (norm(ev.home_team||'').includes(term) && hid && !seen.has(hid))
+        seen.set(hid, { id: hid, name: ev.home_team, country: ev.league?.country || ev.home_team_obj?.country || '' });
+      if (norm(ev.away_team||'').includes(term) && aid && !seen.has(aid))
+        seen.set(aid, { id: aid, name: ev.away_team, country: ev.league?.country || ev.away_team_obj?.country || '' });
     });
 
     // Se não achou, busca em todas as standings de todas as ligas
@@ -718,7 +721,9 @@ app.get('/api/squad/:id', async (req, res) => {
           // Descobre qual lado do evento é o nosso time (home ou away)
           const evHomeId = String(ev.home_team_id || ev.home_team_obj?.id || '');
           const evAwayId = String(ev.away_team_id || ev.away_team_obj?.id || '');
-          const evSide   = evHomeId === teamId ? 'home' : 'away'; // qual lado é nosso time
+          // Valida que o time realmente está nesse evento antes de processar
+          if (evHomeId !== teamId && evAwayId !== teamId) return;
+          const evSide   = evHomeId === teamId ? 'home' : 'away';
 
           const psData = await fetch(
             `https://sports.bzzoiro.com/api/player-stats/?event=${ev.id}&limit=50`,
@@ -742,12 +747,12 @@ app.get('/api/squad/:id', async (req, res) => {
               ''
             );
 
-            // Se temos team_id, filtra direto; senão, usa o lado do evento como proxy
-            const teamMatch = ptid === teamId ||
-              (ptid === '' && ps.is_home === (evSide === 'home')) ||
-              (ptid === '' && ps.side === evSide) ||
-              (ptid === '' && ps.team === evHomeId && evSide === 'home') ||
-              (ptid === '' && ps.team === evAwayId && evSide === 'away');
+            // Filtra pelo lado do evento — ps.is_home indica se é mandante
+            // evSide diz qual lado é o time buscado
+            const isOurSide = ps.is_home === (evSide === 'home') ||
+                              ps.side    === evSide ||
+                              ptid       === teamId;
+            const teamMatch = isOurSide || ptid === teamId;
 
             if (teamMatch) {
               playersSeen.set(pid, {
@@ -1504,6 +1509,31 @@ app.get('/api/jogadores', async (req, res) => {
         const d = await bsd('/players/', { name, team_id, position, nationality_code, limit });
         addPlayers(d.results);
       } catch (_) {}
+    }
+
+    // ── ENRIQUECIMENTO: para jogadores sem current_team, busca via player-stats recentes
+    // BSD não retorna current_team na busca por nome — buscamos de player-stats
+    const withoutTeam = results.filter(p => !p.current_team);
+    if (withoutTeam.length > 0) {
+      const df = new Date(Date.now() - 30*86400000).toISOString().slice(0,10);
+      const dt = new Date().toISOString().slice(0,10);
+      await Promise.all(withoutTeam.slice(0, 20).map(async p => {
+        try {
+          const ps = await bsd('/player-stats/', { player: p.id, date_from: df, date_to: dt, limit: 1, ordering: '-event_date' });
+          const item = (ps.results || [])[0];
+          if (!item) return;
+          // Extrai time do evento
+          const ev = item.event || {};
+          const isHome = item.is_home;
+          const teamName = isHome !== undefined
+            ? (isHome ? ev.home_team : ev.away_team)
+            : (ev.home_team || ev.away_team);
+          const teamId2 = isHome !== undefined
+            ? (isHome ? (ev.home_team_id||ev.home_team_obj?.id) : (ev.away_team_id||ev.away_team_obj?.id))
+            : null;
+          if (teamName) p.current_team = { id: teamId2, name: teamName };
+        } catch(_) {}
+      }));
     }
 
     res.json({ results, count: results.length });
