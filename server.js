@@ -235,6 +235,70 @@ app.get('/api/debug/team', async (req, res) => {
   res.json(result);
 });
 
+// GET /api/debug/squad/:teamId — mostra RAW de cada etapa do squad
+app.get('/api/debug/squad/:teamId', async (req, res) => {
+  const teamId = String(req.params.teamId);
+  const result = { teamId, steps: {} };
+
+  // Passo 1: /api/players/?team=ID
+  try {
+    const r = await fetch(`https://sports.bzzoiro.com/api/players/?team=${teamId}&limit=5`,
+      { headers: { Authorization: `Token ${BSD_TOKEN}` } }).then(r => r.json());
+    result.steps.players_endpoint = {
+      count: (r.results||[]).length,
+      sample: (r.results||[]).slice(0,5).map(p => ({ id: p.id, name: p.name }))
+    };
+  } catch(e) { result.steps.players_endpoint = { error: e.message }; }
+
+  // Passo 2: eventos recentes (sem filtro, filtra manualmente)
+  const df = new Date(Date.now()-60*86400000).toISOString().slice(0,10);
+  const dt = new Date(Date.now()+14*86400000).toISOString().slice(0,10);
+  let teamEvents = [];
+  try {
+    const evData = await fetch(
+      `https://sports.bzzoiro.com/api/events/?date_from=${df}&date_to=${dt}&limit=200`,
+      { headers: { Authorization: `Token ${BSD_TOKEN}` } }).then(r => r.json());
+    teamEvents = (evData.results||[]).filter(ev => {
+      const hid = String(ev.home_team_id||ev.home_team_obj?.id||'');
+      const aid = String(ev.away_team_id||ev.away_team_obj?.id||'');
+      return hid === teamId || aid === teamId;
+    });
+    result.steps.events_found = teamEvents.map(ev => ({
+      id: ev.id, date: ev.event_date?.slice(0,10),
+      home: ev.home_team, away: ev.away_team,
+      home_id: ev.home_team_id||ev.home_team_obj?.id,
+      away_id: ev.away_team_id||ev.away_team_obj?.id,
+      status: ev.status
+    }));
+  } catch(e) { result.steps.events_found = { error: e.message }; }
+
+  // Passo 3: player-stats do primeiro evento encontrado
+  if (teamEvents.length > 0) {
+    const ev = teamEvents[0];
+    try {
+      const ps = await fetch(
+        `https://sports.bzzoiro.com/api/player-stats/?event=${ev.id}&limit=50`,
+        { headers: { Authorization: `Token ${BSD_TOKEN}` } }).then(r => r.json());
+      const items = ps.results||[];
+      result.steps.player_stats = {
+        event_id: ev.id,
+        total: items.length,
+        fields_sample: items[0] ? Object.keys(items[0]) : [],
+        is_home_values: [...new Set(items.map(p => p.is_home))],
+        sample: items.slice(0,6).map(p => ({
+          name: p.player?.name,
+          is_home: p.is_home,
+          side: p.side,
+          team_id: p.team_id,
+          player_id: p.player?.id
+        }))
+      };
+    } catch(e) { result.steps.player_stats = { error: e.message }; }
+  }
+
+  res.json(result);
+});
+
 app.get('/api/debug/lineup/:teamId', async (req, res) => {
   const teamId = String(req.params.teamId);
   const df = new Date().toISOString().slice(0,10);
