@@ -1416,44 +1416,79 @@ app.get('/api/jogadores/:id', async (req, res) => {
   }
 });
 
-// Rota que o frontend usa: /api/player/:id/stats
+// Stats do jogador → /api/player/:id/stats?teamId=X
+// Usa BSD: /api/player-stats/?player=ID (endpoint que retorna evento aninhado)
 app.get('/api/player/:id/stats', async (req, res) => {
   try {
-    const id = req.params.id;
-    if (!id || id==='null' || id==='undefined') return res.status(404).json({error:'ID inválido'});
     const { teamId } = req.query;
+    const playerId = req.params.id;
 
-    // Busca dados do jogador, carreira e stats em paralelo
-    const [jogador, carreira] = await Promise.allSettled([
-      bsd(`/players/${id}/`),
-      bsd(`/players/${id}/career/`)
-    ]);
+    const data = await fetch(
+      `https://sports.bzzoiro.com/api/player-stats/?player=${playerId}&limit=20&tz=America/Sao_Paulo`,
+      { headers: { Authorization: `Token ${BSD_TOKEN}` } }
+    ).then(r => r.json());
 
-    let stats = null;
-    // Pega season_id da temporada mais recente
-    const seasons = carreira.status==='fulfilled' ? (carreira.value.seasons||[]) : [];
-    const sId = seasons[0]?.season_id;
-    try {
-      stats = await bsd(`/players/${id}/stats/`, {
-        season_id: sId,
-        limit: 50,
-        ...(teamId ? { team_id: teamId } : {})
-      });
-    } catch(_) {
-      try {
-        stats = await bsd(`/players/${id}/stats/`, {
-          date_from: `${new Date().getFullYear()-1}-07-01`,
-          limit: 50
-        });
-      } catch(__) {}
-    }
+    let raw = data.results || [];
+    if (!raw.length) return res.json({ jogos: [], fromCache: false });
 
-    res.json({
-      jogador:  jogador.status==='fulfilled'  ? jogador.value  : null,
-      carreira: carreira.status==='fulfilled' ? carreira.value : null,
-      stats
+    raw.sort((a, b) => new Date(b.event?.event_date || 0) - new Date(a.event?.event_date || 0));
+
+    const jogos = raw.slice(0, 7).map(g => {
+      const ev = g.event || {};
+      const playerTeamId = String(g.team_id || teamId || '');
+      const homeId = String(ev.home_team_id || '');
+      const awayId = String(ev.away_team_id || '');
+
+      let opponent, myScore, oppScore;
+      if (playerTeamId && homeId && playerTeamId === homeId) {
+        opponent = ev.away_team; myScore = ev.home_score; oppScore = ev.away_score;
+      } else if (playerTeamId && awayId && playerTeamId === awayId) {
+        opponent = ev.home_team; myScore = ev.away_score; oppScore = ev.home_score;
+      } else if (homeId && homeId === String(teamId)) {
+        opponent = ev.away_team; myScore = ev.home_score; oppScore = ev.away_score;
+      } else if (awayId && awayId === String(teamId)) {
+        opponent = ev.home_team; myScore = ev.away_score; oppScore = ev.home_score;
+      } else {
+        const ht = (ev.home_team||'').toLowerCase(), at = (ev.away_team||'').toLowerCase();
+        const tn = (g.team?.name||g.team_name||'').toLowerCase();
+        const tok = tn ? tn.split(' ')[0] : '';
+        if (tok && ht.includes(tok)) { opponent = ev.away_team; myScore = ev.home_score; oppScore = ev.away_score; }
+        else if (tok && at.includes(tok)) { opponent = ev.home_team; myScore = ev.away_score; oppScore = ev.home_score; }
+        else { opponent = `${ev.home_team} × ${ev.away_team}`; myScore = null; oppScore = null; }
+      }
+
+      let result = '—';
+      if (myScore != null && oppScore != null)
+        result = myScore > oppScore ? 'W' : myScore < oppScore ? 'L' : 'D';
+
+      const score = (ev.home_score != null && ev.away_score != null)
+        ? `${ev.home_score}-${ev.away_score}` : '—';
+      const data_jogo = ev.event_date
+        ? new Date(ev.event_date).toLocaleDateString('pt-BR', { day:'2-digit', month:'2-digit', timeZone:'America/Sao_Paulo' })
+        : '—';
+      const n = v => (v !== null && v !== undefined && v !== '' && !isNaN(Number(v))) ? Number(v) : null;
+
+      return {
+        opponent: opponent||'—', score, result, data: data_jogo,
+        chutes: n(g.total_shots)??n(g.shots),
+        chutes_gol: n(g.shots_on_target)??n(g.shots_on_goal),
+        desarmes: n(g.total_tackle),
+        ftc: n(g.fouls_committed)??n(g.fouls),
+        fts: n(g.fouls_drawn)??n(g.was_fouled),
+        amarelos: n(g.yellow_card)??n(g.yellow_cards),
+        vermelhos: n(g.red_card)??n(g.red_cards),
+        defesas: n(g.saves),
+        gols: n(g.goals),
+        assistencias: n(g.goal_assist),
+        minutos: n(g.minutes_played),
+        passes: n(g.accurate_pass)??n(g.total_pass),
+        rating: n(g.rating),
+      };
     });
+
+    res.json({ jogos, fromCache: false });
   } catch(e) {
+    console.error('[player-stats] erro:', e.message);
     res.status(500).json({ error: e.message });
   }
 });
