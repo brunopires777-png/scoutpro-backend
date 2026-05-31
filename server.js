@@ -782,55 +782,60 @@ app.get('/api/squad/:id', async (req, res) => {
     const teamId = String(req.params.id);
     let players = [];
 
-    // ── FASE 1: ELENCO ────────────────────────────────────────────
-    // Estratégia única: evento full=true → lineups.home/away → player_id + nome
-    // É a única fonte que separa jogadores por time corretamente na BSD
-    {
-      const df2 = new Date(Date.now() - 90*86400000).toISOString().slice(0,10);
-      const dt2 = new Date(Date.now() + 14*86400000).toISOString().slice(0,10);
+    // ── FASE ÚNICA: busca eventos → monta elenco E lineup de uma vez ──────────
+    // Uma única busca de 200 eventos evita a paginação aleatória da BSD
+    // que fazia F1 e F2 retornarem conjuntos diferentes de eventos
 
-      // Busca eventos sem filtro (BSD ignora home_team_id) e filtra manualmente
-      let allEvs = [];
-      try {
-        const r = await fetch(
-          `https://sports.bzzoiro.com/api/events/?date_from=${df2}&date_to=${dt2}&limit=200`,
-          { headers: { Authorization: `Token ${BSD_TOKEN}` } }
-        ).then(r => r.json());
-        allEvs = r.results || [];
-      } catch(_) {}
+    let lineupStatus    = null;
+    let lineupPlayerIds = new Set();
+    let confirmedIds    = new Set();
+    let nextMatchInfo   = null;
 
-      const seen2 = new Set();
+    try {
+      const df2      = new Date(Date.now() - 90*86400000).toISOString().slice(0,10);
+      const dt2      = new Date(Date.now() + 14*86400000).toISOString().slice(0,10);
+
+      // UMA busca de eventos - reutilizada para elenco e lineup
+      const evResp = await fetch(
+        `https://sports.bzzoiro.com/api/events/?date_from=${df2}&date_to=${dt2}&limit=200`,
+        { headers: { Authorization: `Token ${BSD_TOKEN}` } }
+      ).then(r => r.json());
+
+      const allEvs = evResp.results || [];
+      const evSeen = new Set();
       const teamEvs = allEvs
         .filter(ev => {
           const h = String(ev.home_team_id||ev.home_team_obj?.id||'');
           const a = String(ev.away_team_id||ev.away_team_obj?.id||'');
-          return (h===teamId||a===teamId) && !seen2.has(ev.id) && seen2.add(ev.id);
+          return (h===teamId||a===teamId) && !evSeen.has(ev.id) && evSeen.add(ev.id);
         })
-        .sort((a,b) => new Date(b.event_date)-new Date(a.event_date))
-        .slice(0,6);
+        .sort((a,b) => new Date(b.event_date)-new Date(a.event_date));
 
-      console.log(`[squad] F1 eventos: ${teamEvs.length} para teamId=${teamId}`);
+      console.log(`[squad] eventos do time ${teamId}: ${teamEvs.length}`);
 
-      const pMap = new Map(); // pid → { id, name, position, jersey_number, photo }
+      // Busca full=true para cada evento (lineup separada por home/away)
+      const pMap     = new Map();
+      let   nextMatch = null;
+      let   isHomeTeam = false;
+      let   lu        = null;
 
-      for (const ev of teamEvs) {
-        if (pMap.size >= 25) break;
+      for (const ev of teamEvs.slice(0,8)) {
         try {
-          const h  = String(ev.home_team_id||ev.home_team_obj?.id||'');
-          const ih = h === teamId;
+          const h    = String(ev.home_team_id||ev.home_team_obj?.id||'');
+          const isH  = h === teamId;
           const full = await fetch(
             `https://sports.bzzoiro.com/api/events/${ev.id}/?full=true`,
             { headers: { Authorization: `Token ${BSD_TOKEN}` } }
           ).then(r => r.json());
 
-          const lu   = full.lineups || full.lineup;
-          const side = lu ? (ih ? lu.home : lu.away) : null;
-          const list = side ? [...(side.players||[]), ...(side.substitutes||[])] : [];
+          const luObj = full.lineups || full.lineup;
+          const side  = luObj ? (isH ? luObj.home : luObj.away) : null;
+          const list  = side  ? [...(side.players||[]), ...(side.substitutes||[])] : [];
 
-          console.log(`[squad] F1 ev ${ev.id} (${ev.home_team}x${ev.away_team}) ih=${ih} lista=${list.length}`);
+          console.log(`[squad] ev ${ev.id} (${ev.home_team}x${ev.away_team}) isH=${isH} jugadores=${list.length}`);
 
+          // Adiciona ao elenco
           for (const p of list) {
-            // BSD usa player_id, api_id ou id dentro da lineup
             const pid = String(p.player_id||p.api_id||p.player?.id||p.id||'');
             if (!pid||pid==='undefined'||pid==='null'||pMap.has(pid)) continue;
             pMap.set(pid, {
@@ -841,211 +846,72 @@ app.get('/api/squad/:id', async (req, res) => {
               photo:         `https://sports.bzzoiro.com/img/player/${pid}/`
             });
           }
-        } catch(e) { console.log(`[squad] F1 erro ev:`, e.message); }
+
+          // Guarda como próximo jogo para lineup se ainda não temos
+          if (!nextMatch && list.length > 0) {
+            nextMatch  = ev;
+            isHomeTeam = isH;
+            lu         = { lineup_status: luObj?.lineup_status || null, lineups: luObj };
+          }
+        } catch(e) { console.log(`[squad] erro ev ${ev.id}:`, e.message); }
       }
 
       players = [...pMap.values()];
-      console.log(`[squad] F1 resultado: ${players.length} jogadores`);
-    }
+      console.log(`[squad] elenco: ${players.length} jogadores`);
 
-    // ── FASE 2: LINEUP ──────────────────────────────────────────
-    // A BSD ignora filtros ?home_team_id= / ?away_team_id= — retorna eventos aleatórios.
-    // Solução: buscar eventos sem filtro de time (limit=200) e filtrar manualmente.
-    let lineupStatus    = null;
-    let lineupPlayerIds = new Set();
-    let confirmedIds    = new Set();
-    let nextMatchInfo   = null;
-
-    try {
-      const df       = today();
-      const dt       = dayOffset(14);
-      const pastFrom = new Date(Date.now() - 45*86400000).toISOString().slice(0,10);
-
-      // Busca bloco grande de eventos — sem filtro de time pois a BSD os ignora
-      const [futureEvs, pastEvs] = await Promise.allSettled([
-        fetch(`https://sports.bzzoiro.com/api/events/?date_from=${df}&date_to=${dt}&limit=200&ordering=event_date`,
-          { headers: { Authorization: `Token ${BSD_TOKEN}` } }).then(r => r.json()),
-        fetch(`https://sports.bzzoiro.com/api/events/?date_from=${pastFrom}&date_to=${df}&limit=200&ordering=-event_date`,
-          { headers: { Authorization: `Token ${BSD_TOKEN}` } }).then(r => r.json()),
-      ]);
-
-      const futureList = futureEvs.status === 'fulfilled' ? (futureEvs.value.results||[]) : [];
-      const pastList   = pastEvs.status  === 'fulfilled' ? (pastEvs.value.results||[])   : [];
-
-      // Filtra manualmente pelo home_team_obj.id / away_team_obj.id
-      const belongsToTeam = ev => {
-        const hid = String(ev.home_team_id || ev.home_team_obj?.id || '');
-        const aid = String(ev.away_team_id || ev.away_team_obj?.id || '');
-        return hid === teamId || aid === teamId;
-      };
-
-      const teamFuture = futureList.filter(belongsToTeam)
-        .sort((a,b) => new Date(a.event_date) - new Date(b.event_date));
-      const teamPast   = pastList.filter(belongsToTeam)
-        .sort((a,b) => new Date(b.event_date) - new Date(a.event_date));
-
-      console.log(`[squad] eventos do time ${teamId}: ${teamFuture.length} futuros, ${teamPast.length} passados`);
-
-      const allCandidates = [...teamFuture, ...teamPast].slice(0, 8);
-      let nextMatch  = null;
-      let isHomeTeam = false;
-      let lu         = null;
-
-      for (const m of allCandidates) {
-        try {
-          const evHomeId = String(m.home_team_id || m.home_team_obj?.id || '');
-          const isHome   = evHomeId === teamId;
-
-          // Tenta /lineups/ primeiro, fallback para /?full=true
-          let resp = await fetch(
-            `https://sports.bzzoiro.com/api/events/${m.id}/lineups/`,
-            { headers: { Authorization: `Token ${BSD_TOKEN}` } }
-          ).then(r => r.json());
-
-          if (resp.error || resp.detail || resp.status === 404) {
-            const full = await fetch(
-              `https://sports.bzzoiro.com/api/events/${m.id}/?full=true`,
-              { headers: { Authorization: `Token ${BSD_TOKEN}` } }
-            ).then(r => r.json());
-
-            const lu2 = full.lineups || full.lineup || null;
-            if (lu2 && (lu2.home || lu2.away)) {
-              resp = {
-                lineup_status: lu2.lineup_status || full.lineup_status || 'predicted',
-                lineups: { home: lu2.home || null, away: lu2.away || null }
-              };
-              console.log(`[squad] lineup via full=true: evento ${m.id} ${m.home_team}×${m.away_team}`);
-            } else {
-              console.log(`[squad] sem lineup para evento ${m.id} — pulando`);
-              continue;
-            }
-          }
-
-          const tryLineups = resp.lineups || resp;
-          const sideData   = isHome ? (tryLineups.home || resp.home) : (tryLineups.away || resp.away);
-          const hasPlayers = (sideData?.players?.length||0) + (sideData?.substitutes?.length||0) > 0;
-
-          if (!hasPlayers) { console.log(`[squad] lineup vazia: ${m.id}`); continue; }
-
-          nextMatch  = m;
-          isHomeTeam = isHome;
-          lu         = resp;
-          console.log(`[squad] lineup válida: ${m.id} ${m.home_team}×${m.away_team} isHome=${isHome}`);
-          break;
-        } catch(_) {}
-      }
-
+      // Processa lineup para os círculos de status
       if (nextMatch && lu) {
+        const evStatus   = (nextMatch.status||'').toLowerCase();
+        const LIVE_S     = new Set(['inprogress','live','1h','2h','ht','ongoing','extra_time','et','penalties']);
+        const matchIsLive     = LIVE_S.has(evStatus)||nextMatch.is_live===true||(nextMatch.current_minute>0&&evStatus!=='finished'&&evStatus!=='ft');
+        const matchIsFinished = evStatus==='finished'||evStatus==='ft'||evStatus==='complete';
+
+        lineupStatus = lu.lineup_status || lu.lineups?.lineup_status || null;
+        if (matchIsLive||matchIsFinished) lineupStatus = 'confirmed';
+
         nextMatchInfo = `${nextMatch.home_team} × ${nextMatch.away_team} (${nextMatch.event_date?.slice(0,10)}) [isHome=${isHomeTeam}]`;
-        console.log(`[squad] próximo jogo: ${nextMatchInfo}`);
+        console.log(`[squad] próximo jogo: ${nextMatchInfo} status=${lineupStatus}`);
 
-        // Se o jogo já começou, a escalação É confirmada independente do campo lineup_status
-        const LIVE_S = new Set(['inprogress','live','1h','2h','ht','ongoing','in_progress','extra_time','et','penalties']);
-        const evStatus = (nextMatch.status||'').toLowerCase();
-        const matchIsLive = LIVE_S.has(evStatus) || nextMatch.is_live === true
-          || (nextMatch.current_minute > 0 && evStatus !== 'finished' && evStatus !== 'ft');
-        const matchIsFinished = evStatus === 'finished' || evStatus === 'ft' || evStatus === 'complete';
+        const luSide   = lu.lineups ? (isHomeTeam ? lu.lineups.home : lu.lineups.away) : null;
+        const starters = luSide?.players     || [];
+        const subs     = luSide?.substitutes || [];
 
-        lineupStatus = lu.lineup_status || lu.status || null;
+        const extractPid = p => String(p.player_id||p.api_id||p.player?.id||p.id||'');
+        const norm2      = s => (s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim();
 
-        // Jogo ao vivo ou encerrado = escalação confirmada de fato
-        // confirmed → titulares ficam verdes; banco fica amarelo (predito)
-        if (matchIsLive || matchIsFinished) lineupStatus = 'confirmed';
-        console.log(`[squad] evStatus="${evStatus}" isLive=${matchIsLive} isFinished=${matchIsFinished} → lineupStatus=${lineupStatus}`);
+        const starterPids = new Set(starters.map(extractPid).filter(p=>p&&p!=='undefined'&&p!=='null'));
+        const allLuPids   = new Set([...starters,...subs].map(extractPid).filter(p=>p&&p!=='undefined'&&p!=='null'));
+        const allLuNames  = new Set([...starters,...subs].map(p=>norm2(p.name||p.player?.name||'')).filter(Boolean));
+        const starterNames= new Set(starters.map(p=>norm2(p.name||p.player?.name||'')).filter(Boolean));
 
-        console.log(`[squad] lineup_status=${lineupStatus} evStatus=${evStatus} isLive=${matchIsLive} isFinished=${matchIsFinished}`);
+        lineupPlayerIds = allLuPids;
+        if (lineupStatus==='confirmed') starterPids.forEach(p=>confirmedIds.add(p));
 
-        // BSD pode retornar estrutura:
-        //   lu.lineups.home / lu.lineups.away  (aninhada)
-        //   lu.home / lu.away                  (flat)
-        const lineups = lu.lineups || lu;
-        const side    = isHomeTeam ? (lineups.home || lu.home) : (lineups.away || lu.away);
-
-        if (side) {
-          const starters = side.players     || side.starting || [];
-          const subs     = side.substitutes || side.bench    || [];
-
-          // Função helper: extrai TODOS os identificadores de um jogador da lineup
-          const extractPid = p => [
-            p.player_id, p.player?.id, p.id,
-            // BSD às vezes retorna como string numérica com aspas extras
-            typeof p.player_id === 'string' ? p.player_id.replace(/\D/g,'') : null,
-          ].map(v => v != null ? String(v) : null).filter(v => v && v !== '0' && v !== 'undefined' && v !== 'null');
-
-          const extractName = p =>
-            (p.name || p.player?.name || p.player?.display_name || p.short_name || '').toLowerCase().trim();
-
-          const starterPids  = new Set();
-          const starterNames = new Set();
-          const allLuNames   = new Set();
-
-          starters.forEach(p => {
-            extractPid(p).forEach(pid => { lineupPlayerIds.add(pid); starterPids.add(pid); });
-            const nm = extractName(p);
-            if (nm) { starterNames.add(nm); allLuNames.add(nm); }
-          });
-          subs.forEach(p => {
-            extractPid(p).forEach(pid => lineupPlayerIds.add(pid));
-            const nm = extractName(p);
-            if (nm) allLuNames.add(nm);
-          });
-
-          // Se jogo ao vivo ou encerrado: titulares = confirmed, banco = predicted
-          // Se apenas predito: todos = predicted (amarelo)
-          if (lineupStatus === 'confirmed') {
-            starterPids.forEach(pid => confirmedIds.add(pid));
-            // banco fica como predicted (lineupPlayerIds já tem todos)
-          }
-
-          console.log(`[squad] lineup IDs: ${lineupPlayerIds.size} (starters: ${starterPids.size}), names: ${allLuNames.size}`);
-
-          // ── FALLBACK POR NOME ──────────────────────────────────
-          // Se nenhum ID da lineup bateu com o elenco, cruza por nome
-          // (BSD às vezes omite player_id na lineup mas tem o nome)
-          const idsInSquad = new Set(players.map(p => String(p.id)));
-          const matchedByIds = [...lineupPlayerIds].filter(pid => idsInSquad.has(pid)).length;
-
-          if (matchedByIds === 0 && allLuNames.size > 0) {
-            console.log('[squad] fallback: cruzando por nome...');
-            // Normaliza nomes para comparação: remove acentos, minúsculas
-            const norm = s => (s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim();
-            const luNormed   = [...allLuNames].map(n => norm(n));
-            const luStarters = [...starterNames].map(n => norm(n));
-
-            players.forEach(p => {
-              const pnorm  = norm(p.name);
-              const ptoks  = pnorm.split(/\s+/).filter(t => t.length >= 3);
-
-              // Tenta match exato primeiro, depois por token
-              const inAll = luNormed.some(ln => {
-                if (ln === pnorm) return true;
-                const ltoks = ln.split(/\s+/).filter(t => t.length >= 3);
-                return ltoks.some(lt => ptoks.some(pt => lt === pt || lt.startsWith(pt) || pt.startsWith(lt)));
-              });
-
-              if (inAll) {
-                const pid = String(p.id);
-                lineupPlayerIds.add(pid);
-
-                // Verifica se era titular
-                const inStarters = luStarters.some(ln => {
-                  if (ln === pnorm) return true;
-                  const ltoks = ln.split(/\s+/).filter(t => t.length >= 3);
-                  return ltoks.some(lt => ptoks.some(pt => lt === pt || lt.startsWith(pt) || pt.startsWith(lt)));
-                });
-                if (lineupStatus === 'confirmed' && inStarters) confirmedIds.add(pid);
-              }
+        // Fallback por nome se IDs não bateram
+        const idsInSquad = new Set(players.map(p=>p.id));
+        if ([...allLuPids].filter(p=>idsInSquad.has(p)).length === 0 && allLuNames.size > 0) {
+          console.log('[squad] fallback nome...');
+          players.forEach(p => {
+            const pn = norm2(p.name);
+            const pt = pn.split(/\s+/).filter(t=>t.length>=3);
+            const inAll = [...allLuNames].some(ln => {
+              const lt = ln.split(/\s+/).filter(t=>t.length>=3);
+              return lt.some(l=>pt.some(pp=>l===pp||l.startsWith(pp)||pp.startsWith(l)));
             });
-            console.log(`[squad] fallback nome: ${lineupPlayerIds.size} IDs mapeados`);
-          }
-        } else {
-          console.log(`[squad] side não encontrado — keys lu: ${Object.keys(lu).join(',')}`);
+            if (inAll) {
+              lineupPlayerIds.add(p.id);
+              const inStarter = [...starterNames].some(ln => {
+                const lt = ln.split(/\s+/).filter(t=>t.length>=3);
+                return lt.some(l=>pt.some(pp=>l===pp||l.startsWith(pp)||pp.startsWith(l)));
+              });
+              if (lineupStatus==='confirmed'&&inStarter) confirmedIds.add(p.id);
+            }
+          });
+          console.log(`[squad] fallback nome: ${lineupPlayerIds.size} IDs`);
         }
-      } else {
-        console.log(`[squad] nenhuma lineup válida encontrada nos ${allCandidates.length} candidatos`);
       }
     } catch(e) {
-      console.log('[squad] erro na lineup:', e.message);
+      console.log('[squad] erro geral:', e.message);
     }
 
     // ── FASE 3: CRUZAMENTO FINAL ─────────────────────────────────
