@@ -945,7 +945,7 @@ async function buscarTime(){
       const d2 = await r2.json();
       if(d2.teams&&d2.teams.length>0){
         // Filtra os que contêm o termo buscado no nome
-        times = d2.teams.filter(t=>(t.name||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').includes(term));
+        times = d2.teams.filter(t=>(t.name||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').includes(term));
         if(!times.length) times = d2.teams; // retorna tudo se não filtrar
       }
       if(!times.length) erroDetalhado += ` | token "${token}": 0 resultados`;
