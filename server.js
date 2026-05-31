@@ -779,20 +779,49 @@ app.get('/api/squad/:id', async (req, res) => {
     let confirmedIds    = new Set();
 
     // ── FASE 1: ELENCO via /teams/{id}/squad/ (v2) ─────────────────────
+    // Valida com lineup: se nenhum jogador do squad aparece na próxima lineup, BSD tem bug de ID
+    let squadFromEndpoint = [];
     try {
       const sq = await bsd(`/teams/${teamId}/squad/`);
       const list = sq.players || sq.squad || sq.results || [];
       if (list.length > 0) {
-        players = list.map(p => ({
+        squadFromEndpoint = list.map(p => ({
           id:            String(p.id),
           name:          p.name || p.display_name || '—',
           position:      p.position || '—',
           jersey_number: String(p.jersey_number || ''),
           photo:         `https://sports.bzzoiro.com/img/player/${p.id}/`
         }));
-        console.log(`[squad] via /teams/squad: ${players.length}`);
+        console.log(`[squad] via /teams/squad: ${squadFromEndpoint.length}`);
       }
     } catch(_) {}
+
+    // Valida o squad contra a lineup do próximo jogo
+    if (squadFromEndpoint.length > 0) {
+      try {
+        const valEv = await bsd('/events/', { team_id: teamId, date_from: new Date(Date.now()-30*86400000).toISOString().slice(0,10), date_to: new Date(Date.now()+14*86400000).toISOString().slice(0,10), limit: 3 });
+        let valid = false;
+        for (const ev of (valEv.results||[]).slice(0,3)) {
+          const lu = await bsd(`/events/${ev.id}/lineups/`);
+          if (lu.lineup_status==='unavailable' || !lu.lineups) continue;
+          const isH = String(ev.home_team_id)===teamId;
+          const side = isH ? lu.lineups.home : lu.lineups.away;
+          const luIds = new Set([...(side?.players||[]),...(side?.substitutes||[])].map(p=>String(p.id)));
+          const matches = squadFromEndpoint.filter(p=>luIds.has(p.id)).length;
+          console.log(`[squad] validação squad: ${matches}/${Math.min(luIds.size,5)} jogadores cruzam`);
+          if (matches >= 3) { valid = true; break; }
+        }
+        if (valid) {
+          players = squadFromEndpoint;
+          console.log(`[squad] squad validado OK: ${players.length} jogadores`);
+        } else {
+          console.log(`[squad] squad inválido (BSD bug de ID) — usando lineup como elenco`);
+        }
+      } catch(_) {
+        // Se não conseguiu validar, usa o squad mesmo assim
+        players = squadFromEndpoint;
+      }
+    }
 
     // ── FASE 1B: fallback via /events/?team_id= (v2 suporta team_id) ───
     if (!players.length) {
@@ -1383,6 +1412,48 @@ app.get('/api/jogadores/:id', async (req, res) => {
       stats
     });
   } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Rota que o frontend usa: /api/player/:id/stats
+app.get('/api/player/:id/stats', async (req, res) => {
+  try {
+    const id = req.params.id;
+    if (!id || id==='null' || id==='undefined') return res.status(404).json({error:'ID inválido'});
+    const { teamId } = req.query;
+
+    // Busca dados do jogador, carreira e stats em paralelo
+    const [jogador, carreira] = await Promise.allSettled([
+      bsd(`/players/${id}/`),
+      bsd(`/players/${id}/career/`)
+    ]);
+
+    let stats = null;
+    // Pega season_id da temporada mais recente
+    const seasons = carreira.status==='fulfilled' ? (carreira.value.seasons||[]) : [];
+    const sId = seasons[0]?.season_id;
+    try {
+      stats = await bsd(`/players/${id}/stats/`, {
+        season_id: sId,
+        limit: 50,
+        ...(teamId ? { team_id: teamId } : {})
+      });
+    } catch(_) {
+      try {
+        stats = await bsd(`/players/${id}/stats/`, {
+          date_from: `${new Date().getFullYear()-1}-07-01`,
+          limit: 50
+        });
+      } catch(__) {}
+    }
+
+    res.json({
+      jogador:  jogador.status==='fulfilled'  ? jogador.value  : null,
+      carreira: carreira.status==='fulfilled' ? carreira.value : null,
+      stats
+    });
+  } catch(e) {
     res.status(500).json({ error: e.message });
   }
 });
