@@ -1676,4 +1676,15 @@ app.get('/api/bookmakers', async (req, res) => {
 // ─────────────────────────────────────────────
 app.listen(PORT, () => {
   console.log(`Scout Pro Backend v2 rodando na porta ${PORT}`);
+
+  // Mantém o servidor acordado no Render (plano gratuito dorme após 15min)
+  const SELF_URL = process.env.RENDER_EXTERNAL_URL || `http://localhost:${PORT}`;
+  setInterval(async () => {
+    try {
+      await fetch(`${SELF_URL}/api/ping`);
+      console.log('[keep-alive] ping OK');
+    } catch(_) {}
+  }, 14 * 60 * 1000); // a cada 14 minutos
 });
+
+app.get('/api/ping', (req, res) => res.json({ ok: true, ts: Date.now() }));
