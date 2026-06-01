@@ -871,6 +871,7 @@ function extrairLigaId(j){
 
 /* ── SCOUT (original intacto) ── */
 const LINE_COLS=[
+  {key:'gols',label:'⚽',full:'Gols Marcados'},
   {key:'chutes',label:'CHU',full:'Chutes Totais'},
   {key:'chutes_gol',label:'CHG',full:'Chutes ao Gol'},
   {key:'assistencias',label:'ASS',full:'Assistências'},
@@ -995,6 +996,7 @@ async function selecionarTime(id,name,logo){
   document.getElementById('step2').style.display='block';
   document.getElementById('step3').innerHTML='';
   document.getElementById('lbl-team').textContent=name;
+  setTimeout(()=>document.getElementById('step2').scrollIntoView({behavior:'smooth',block:'start'}),80);
   document.getElementById('lbl-sub').textContent='Selecione o jogador';
   document.getElementById('squad-area').innerHTML=`<div class="loading"><div class="spinner-wrap"><div class="spinner"></div><div class="spinner-pct">0%</div></div><p>Carregando elenco de <strong>${name}</strong>...</p></div>`;
   try{localStorage.removeItem('sp4_squad_'+id);}catch(e){}
@@ -1162,7 +1164,17 @@ async function verStats(playerId,playerName,playerPhoto,playerPos){
         }
       }
       const sc = result==='W'?'score-w':result==='L'?'score-l':'score-d';
-      tbody+=`<tr><td style="font-size:11px;color:var(--text2)">${g.data||'—'}</td><td>${g.opponent||'—'}</td><td><span class="${sc}">${g.score||'—'}</span></td>`;
+      // Extrai só o adversário quando opponent tem " × " (fallback do servidor)
+      let oppDisplay = g.opponent || '—';
+      if (oppDisplay.includes(' × ') && selTeam?.name) {
+        const parts = oppDisplay.split(' × ');
+        const mine = (selTeam.name||'').toLowerCase().split(' ')[0];
+        // Qual parte NÃO é o time do jogador?
+        oppDisplay = parts[0].toLowerCase().includes(mine) ? parts[1] : parts[0];
+      }
+      // Cor do adversário: verde=vitória, vermelho=derrota, cinza=empate
+      const oppColor = result==='W' ? 'var(--green)' : result==='L' ? 'var(--red)' : 'var(--text2)';
+      tbody+=`<tr><td style="font-size:11px;color:var(--text2)">${g.data||'—'}</td><td style="color:${oppColor};font-weight:${result==='W'||result==='L'?'600':'400'}">${oppDisplay}</td><td><span class="${sc}">${g.score||'—'}</span></td>`;
       cols.forEach(c=>{const val=g[c.key];tbody+=val!==null&&val!==undefined?`<td class="num">${val}</td>`:`<td class="nd">—</td>`;});
       tbody+=`</tr>`;
     });
