@@ -196,6 +196,35 @@ app.get('/api/debug/teamid', async (req, res) => {
 // DIAGNÓSTICO COMPLETO — GET /api/debug/lineup/:teamId
 // Testa os 3 endpoints possíveis de lineup para os jogos mais recentes do time
 // ─────────────────────────────────────────────
+// Copa do Mundo 2026 → /api/worldcup/squads
+app.get('/api/worldcup/squads', async (req, res) => {
+  try {
+    const { team_id } = req.query;
+    if (team_id) {
+      const data = await bsd(`/worldcup/squads/${team_id}/`);
+      res.json(data);
+    } else {
+      const data = await bsd('/worldcup/squads/', { limit: 200 });
+      res.json(data);
+    }
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// Jogos Copa do Mundo → /api/worldcup/matches
+app.get('/api/worldcup/matches', async (req, res) => {
+  try {
+    const { league_id } = req.query;
+    // Copa do Mundo 2026 usa league_id específico — busca eventos
+    const data = await bsd('/events/', {
+      league_id: league_id || '',
+      date_from: '2026-06-11',
+      date_to:   '2026-07-19',
+      limit: 200
+    });
+    res.json(data);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
 // GET /api/debug/team?q=Palmeiras — mostra qual ID a busca retorna e de onde vem
 app.get('/api/debug/team', async (req, res) => {
   const q = (req.query.q||'').toLowerCase();
@@ -796,31 +825,10 @@ app.get('/api/squad/:id', async (req, res) => {
       }
     } catch(_) {}
 
-    // Valida o squad contra a lineup do próximo jogo
+    // Squad v2 é confiável — usa direto se retornou dados
     if (squadFromEndpoint.length > 0) {
-      try {
-        const valEv = await bsd('/events/', { team_id: teamId, date_from: new Date(Date.now()-30*86400000).toISOString().slice(0,10), date_to: new Date(Date.now()+14*86400000).toISOString().slice(0,10), limit: 3 });
-        let valid = false;
-        for (const ev of (valEv.results||[]).slice(0,3)) {
-          const lu = await bsd(`/events/${ev.id}/lineups/`);
-          if (lu.lineup_status==='unavailable' || !lu.lineups) continue;
-          const isH = String(ev.home_team_id)===teamId;
-          const side = isH ? lu.lineups.home : lu.lineups.away;
-          const luIds = new Set([...(side?.players||[]),...(side?.substitutes||[])].map(p=>String(p.id)));
-          const matches = squadFromEndpoint.filter(p=>luIds.has(p.id)).length;
-          console.log(`[squad] validação squad: ${matches}/${Math.min(luIds.size,5)} jogadores cruzam`);
-          if (matches >= 3) { valid = true; break; }
-        }
-        if (valid) {
-          players = squadFromEndpoint;
-          console.log(`[squad] squad validado OK: ${players.length} jogadores`);
-        } else {
-          console.log(`[squad] squad inválido (BSD bug de ID) — usando lineup como elenco`);
-        }
-      } catch(_) {
-        // Se não conseguiu validar, usa o squad mesmo assim
-        players = squadFromEndpoint;
-      }
+      players = squadFromEndpoint;
+      console.log(`[squad] squad OK: ${players.length} jogadores`);
     }
 
     // ── FASE 1B: fallback via /events/?team_id= (v2 suporta team_id) ───
@@ -868,9 +876,10 @@ app.get('/api/squad/:id', async (req, res) => {
     try {
       const df  = today();
       const dt  = dayOffset(10);
-      const evFut = await bsd('/events/', { team_id: teamId, date_from: df, date_to: dt, limit: 5, ordering: 'event_date' });
-      const evPast = await bsd('/events/', { team_id: teamId, date_from: new Date(Date.now()-14*86400000).toISOString().slice(0,10), date_to: df, limit: 5, ordering: '-event_date' });
-      const candidates = [...(evFut.results||[]), ...(evPast.results||[])];
+      // v2: /teams/{id}/fixtures/ é o endpoint correto para jogos do time
+      const fixturesFut  = await bsd(`/teams/${teamId}/fixtures/`, { date_from: df, date_to: dt, limit: 5 });
+      const fixturesPast = await bsd(`/teams/${teamId}/fixtures/`, { date_from: new Date(Date.now()-14*86400000).toISOString().slice(0,10), date_to: df, status: 'finished', limit: 5 });
+      const candidates   = [...(fixturesFut.results||[]), ...(fixturesPast.results||[])];
 
       for (const ev of candidates) {
         try {
@@ -1344,29 +1353,24 @@ app.get('/api/jogadores', async (req, res) => {
       } catch (_) {}
     }
 
-    // ── ENRIQUECIMENTO: para jogadores sem current_team, busca via player-stats recentes
-    // BSD não retorna current_team na busca por nome — buscamos de player-stats
-    const withoutTeam = results.filter(p => !p.current_team);
-    if (withoutTeam.length > 0) {
-      const df = new Date(Date.now() - 30*86400000).toISOString().slice(0,10);
-      const dt = new Date().toISOString().slice(0,10);
-      await Promise.all(withoutTeam.slice(0, 20).map(async p => {
+    // ── ENRIQUECIMENTO: usa current_team_id (v2 retorna isso) para buscar nome do time em batch
+    const teamIds = [...new Set(results.filter(p => p.current_team_id && !p.current_team).map(p => p.current_team_id))];
+    if (teamIds.length > 0) {
+      // Busca nomes dos times em paralelo (máximo 10 times únicos)
+      const teamNames = {};
+      await Promise.all(teamIds.slice(0,10).map(async tid => {
         try {
-          const ps = await bsd('/player-stats/', { player: p.id, date_from: df, date_to: dt, limit: 1, ordering: '-event_date' });
-          const item = (ps.results || [])[0];
-          if (!item) return;
-          // Extrai time do evento
-          const ev = item.event || {};
-          const isHome = item.is_home;
-          const teamName = isHome !== undefined
-            ? (isHome ? ev.home_team : ev.away_team)
-            : (ev.home_team || ev.away_team);
-          const teamId2 = isHome !== undefined
-            ? (isHome ? (ev.home_team_id||ev.home_team_obj?.id) : (ev.away_team_id||ev.away_team_obj?.id))
-            : null;
-          if (teamName) p.current_team = { id: teamId2, name: teamName };
+          const t = await bsd(`/teams/${tid}/`);
+          teamNames[String(tid)] = t.name || t.short_name || '—';
         } catch(_) {}
       }));
+      // Aplica nos jogadores
+      results.forEach(p => {
+        if (p.current_team_id && !p.current_team) {
+          const tname = teamNames[String(p.current_team_id)];
+          if (tname) p.current_team = { id: p.current_team_id, name: tname };
+        }
+      });
     }
 
     res.json({ results, count: results.length });
@@ -1414,6 +1418,25 @@ app.get('/api/jogadores/:id', async (req, res) => {
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
+});
+
+// Perfil completo do jogador → /api/player/:id/profile
+app.get('/api/player/:id/profile', async (req, res) => {
+  try {
+    const id = req.params.id;
+    const [detail, career, national, transfers] = await Promise.allSettled([
+      bsd(`/players/${id}/`),
+      bsd(`/players/${id}/career/`),
+      bsd(`/players/${id}/national-team/`),
+      bsd(`/players/${id}/transfers/`),
+    ]);
+    res.json({
+      detail:    detail.status==='fulfilled'    ? detail.value    : null,
+      career:    career.status==='fulfilled'    ? career.value    : null,
+      national:  national.status==='fulfilled'  ? national.value  : null,
+      transfers: transfers.status==='fulfilled' ? transfers.value : null,
+    });
+  } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
 // Stats do jogador → /api/player/:id/stats?teamId=X
