@@ -556,8 +556,9 @@ td.nd{color:#555;font-size:13px}
       <button class="tab active" onclick="goPage('scout',this)">Scout</button>
       <button class="tab" onclick="goPage('jogos',this)">Jogos & Predições<span class="live-dot" id="live-dot"></span></button>
       <button class="tab" onclick="goPage('classificacao',this)">Tabela</button>
-      <button class="tab" onclick="goPage('historico',this)">Histórico</button>
       <button class="tab" onclick="goPage('arbitros',this)">Árbitros</button>
+      <button class="tab" onclick="goPage('copa',this)">🏆 Copa 2026</button>
+      <button class="tab" onclick="goPage('historico',this)">Histórico</button>
     </div>
   </div>
 
@@ -614,7 +615,10 @@ td.nd{color:#555;font-size:13px}
           <div class="card-title" id="lbl-team">Elenco</div>
           <div id="lbl-sub" style="font-size:11px;color:var(--text2);margin-top:2px">Selecione o jogador</div>
         </div>
-        <button class="btn btn-ghost btn-sm" onclick="voltarStep1()">← Voltar</button>
+        <div style="display:flex;gap:8px;align-items:center">
+          <button id="btn-reload-squad" onclick="forcarReloadElenco()" style="display:none;background:rgba(57,255,20,.12);border:1px solid rgba(57,255,20,.3);color:#39ff14;border-radius:16px;padding:5px 12px;font-size:12px;font-weight:700;cursor:pointer">🔄 Recarregar</button>
+          <button class="btn btn-ghost btn-sm" onclick="voltarStep1()">← Voltar</button>
+        </div>
       </div>
       <div id="squad-area"></div>
     </div>
@@ -674,6 +678,11 @@ td.nd{color:#555;font-size:13px}
     </div>
     <div id="arbitro-area"></div>
   </div>
+  <!-- COPA DO MUNDO 2026 -->
+  <div class="page" id="page-copa">
+    <div id="copa-area"><div class="loading"><div class="spinner-wrap"><div class="spinner"></div><div class="spinner-pct">0%</div></div><p>Carregando Copa do Mundo 2026...</p></div></div>
+  </div>
+
   <!-- HISTÓRICO -->
   <div class="page" id="page-historico">
     <div class="card">
@@ -835,6 +844,7 @@ function goPage(name,el){
   if(name==='jogos'&&!jogosCarregados)carregarJogos('hoje');
   // classificacao: não auto-carrega — usuário seleciona a liga pelo LP
   if(name==='arbitros')carregarArbitrosProximos(null);
+  if(name==='copa')carregarCopa();
 }
 
 async function carregarLigas(){
@@ -868,6 +878,7 @@ function extrairLigaId(j){
 
 /* ── SCOUT (original intacto) ── */
 const LINE_COLS=[
+  {key:'gols',label:'⚽',full:'Gols Marcados'},
   {key:'chutes',label:'CHU',full:'Chutes Totais'},
   {key:'chutes_gol',label:'CHG',full:'Chutes ao Gol'},
   {key:'assistencias',label:'ASS',full:'Assistências'},
@@ -945,7 +956,7 @@ async function buscarTime(){
       const d2 = await r2.json();
       if(d2.teams&&d2.teams.length>0){
         // Filtra os que contêm o termo buscado no nome
-        times = d2.teams.filter(t=>(t.name||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').includes(term));
+        times = d2.teams.filter(t=>(t.name||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').includes(term));
         if(!times.length) times = d2.teams; // retorna tudo se não filtrar
       }
       if(!times.length) erroDetalhado += ` | token "${token}": 0 resultados`;
@@ -983,20 +994,36 @@ async function buscarTime(){
 
 async function selecionarTime(id,name,logo){
   selTeam={id,name,logo};
-  document.getElementById('step1').style.display='none';
+  const btnR=document.getElementById('btn-reload-squad');
+  if(btnR){btnR.style.display='inline-flex';btnR.setAttribute('data-id',id);btnR.setAttribute('data-name',name||'');}
+  // Mantém busca visível — esconde só os resultados anteriores
+  document.getElementById('step2-results')?.remove();
   const destBox=document.getElementById('dest-box');
   if(destBox) destBox.style.display='none';
   document.getElementById('step2').style.display='block';
   document.getElementById('step3').innerHTML='';
   document.getElementById('lbl-team').textContent=name;
+  setTimeout(()=>document.getElementById('step2').scrollIntoView({behavior:'smooth',block:'start'}),80);
   document.getElementById('lbl-sub').textContent='Selecione o jogador';
   document.getElementById('squad-area').innerHTML=`<div class="loading"><div class="spinner-wrap"><div class="spinner"></div><div class="spinner-pct">0%</div></div><p>Carregando elenco de <strong>${name}</strong>...</p></div>`;
   try{localStorage.removeItem('sp4_squad_'+id);}catch(e){}
   try{
-    const data=await apiFetch(`/api/squad/${id}`,`squad_${id}`,600000); // 10min cache — atualiza escalações confirmadas rapidamente
+    // Cache de 12h — parâmetro force=1 pula o cache no backend
+    const cacheKey = `squad_${id}`;
+    const data=await apiFetch(`/api/squad/${id}`,cacheKey,43200000);
     const players=data.players||[];
     const lineupStatus=data.lineup_status||null;
-    if(!players.length){document.getElementById('squad-area').innerHTML=`<div class="empty"><div class="empty-icon">👤</div><p>Elenco não encontrado.</p></div>`;return;}
+    if(!players.length){
+      document.getElementById('squad-area').innerHTML=`<div class="empty">
+        <div class="empty-icon" style="font-size:2rem">⚠️</div>
+        <p style="font-weight:700;margin-bottom:6px">Elenco não disponível</p>
+        <p style="font-size:12px;color:var(--text3);max-width:280px;margin:0 auto;line-height:1.5">
+          Os dados deste time não estão disponíveis no momento na fonte de dados (BSD).<br><br>
+          <span style="color:var(--green);cursor:pointer;text-decoration:underline;font-weight:700" onclick="forcarReloadElenco()">🔄 Tentar novamente</span>
+        </p>
+      </div>`;
+      return;
+    }
     const grupos={Goleiros:[],Defensores:[],Meias:[],Atacantes:[],Outros:[]};
     players.forEach(p=>{(grupos[grupoPos(p.position)]||grupos.Outros).push(p);});
     let html='';
@@ -1047,6 +1074,23 @@ async function selecionarTime(id,name,logo){
     </div>`;
     document.getElementById('squad-area').innerHTML=html;
   }catch(e){document.getElementById('squad-area').innerHTML=`<div class="err">Erro: ${e.message}</div>`;}
+}
+
+// Força reload do elenco limpando cache — disponível sempre no header
+async function forcarReloadElenco(idArg, nameArg){
+  const btn = document.getElementById('btn-reload-squad');
+  const id   = idArg   || (btn && btn.getAttribute('data-id'))   || selTeam?.id;
+  const name = nameArg || (btn && btn.getAttribute('data-name')) || selTeam?.name;
+  if(!id) return;
+  try{
+    const toRemove=[];
+    for(let i=0;i<localStorage.length;i++){
+      const k=localStorage.key(i);
+      if(k&&k.includes('squad_'+id)) toRemove.push(k);
+    }
+    toRemove.forEach(k=>localStorage.removeItem(k));
+  }catch(e){}
+  await selecionarTime(id, name);
 }
 
 // Botão "Atualizar Escalação" — limpa cache DB e recarrega elenco
@@ -1127,7 +1171,17 @@ async function verStats(playerId,playerName,playerPhoto,playerPos){
         }
       }
       const sc = result==='W'?'score-w':result==='L'?'score-l':'score-d';
-      tbody+=`<tr><td style="font-size:11px;color:var(--text2)">${g.data||'—'}</td><td>${g.opponent||'—'}</td><td><span class="${sc}">${g.score||'—'}</span></td>`;
+      // Extrai só o adversário quando opponent tem " × " (fallback do servidor)
+      let oppDisplay = g.opponent || '—';
+      if (oppDisplay.includes(' × ') && selTeam?.name) {
+        const parts = oppDisplay.split(' × ');
+        const mine = (selTeam.name||'').toLowerCase().split(' ')[0];
+        // Qual parte NÃO é o time do jogador?
+        oppDisplay = parts[0].toLowerCase().includes(mine) ? parts[1] : parts[0];
+      }
+      // Cor do adversário: verde=vitória, vermelho=derrota, cinza=empate
+      const oppColor = result==='W' ? 'var(--green)' : result==='L' ? 'var(--red)' : 'var(--text2)';
+      tbody+=`<tr><td style="font-size:11px;color:var(--text2)">${g.data||'—'}</td><td style="color:${oppColor};font-weight:${result==='W'||result==='L'?'600':'400'}">${oppDisplay}</td><td><span class="${sc}">${g.score||'—'}</span></td>`;
       cols.forEach(c=>{const val=g[c.key];tbody+=val!==null&&val!==undefined?`<td class="num">${val}</td>`:`<td class="nd">—</td>`;});
       tbody+=`</tr>`;
     });
@@ -1138,13 +1192,40 @@ async function verStats(playerId,playerName,playerPhoto,playerPos){
     const vCls=verdict>=70?'high':verdict>=45?'mid':'low';
     const vDesc=verdict>=70?'Alto índice de confiança. Desempenho consistente nos últimos jogos.':verdict>=45?'Confiança moderada. Desempenho razoável com algumas variações.':'Baixa confiança. Jogador apresenta inconsistência recente.';
     const legend=cols.map(c=>`<div class="v-leg"><div class="v-dot"></div>${c.label}: ${c.full}</div>`).join('');
+    // Busca perfil completo (valor de mercado, contrato, etc.)
+    let profilePills = '';
+    try {
+      const pr = await apiFetch(`/api/player/${playerId}/profile`, null, 300000);
+      const pd = pr?.detail;
+      if (pd) {
+        const mv = pd.market_value_eur >= 1000000
+          ? `€\${(pd.market_value_eur/1000000).toFixed(1)}M`
+          : pd.market_value_eur > 0 ? `€\${(pd.market_value_eur/1000).toFixed(0)}K` : null;
+        const pills = [
+          pd.availability==='injured'   ? '🔴 Lesionado'           : null,
+          pd.availability==='suspended' ? '🟡 Suspenso'            : null,
+          mv                            ? `💰 \${mv}`              : null,
+          pd.contract_until             ? `📋 até \${pd.contract_until.slice(0,4)}` : null,
+          pd.height_cm                  ? `📏 \${pd.height_cm}cm`  : null,
+          pd.preferred_foot==='right'   ? '🦶 Pé Direito'          : pd.preferred_foot==='left' ? '🦶 Pé Esquerdo' : null,
+          pd.nationality                ? `🌍 \${pd.nationality}`  : null,
+        ].filter(Boolean);
+        if (pills.length)
+          profilePills = '<div style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:10px">'+pills.map(p=>'<span class="pill" style="font-size:10px;padding:3px 8px">'+p+'</span>').join('')+'</div>';
+      }
+    } catch(_) {}
+
     document.getElementById('step3').innerHTML=`
       <div class="card fadein">
         <div class="p-hdr">
           <div class="p-avatar">${playerPhoto?`<img src="${playerPhoto}" onerror="this.parentElement.textContent='${inits}'">`:inits}</div>
-          <div style="flex:1"><div class="p-name">${playerName}</div><div class="p-info">${selTeam?.name||'—'} · ${playerPos||'Jogador'}</div></div>
+          <div style="flex:1">
+            <div class="p-name">${playerName}</div>
+            <div class="p-info">${selTeam?.name||'—'} · ${playerPos||'Jogador'}</div>
+          </div>
           ${data.fromCache?`<span class="cache-pill">💾 Cache</span>`:''}
         </div>
+        \${profilePills}
         <div class="slabel">Últimos 7 jogos</div>
         <div class="tbl-wrap"><table><thead>${thead}</thead><tbody>${tbody}${avgRow}</tbody></table></div>
         <div style="display:flex;gap:12px;margin-top:10px;font-size:11px;flex-wrap:wrap">
@@ -1597,6 +1678,22 @@ function renderMtEscalacao(d){
       🟢 Escalação confirmada.
     </div>
   </div>
+  \${(()=>{
+    const uh=d.lineups?.unavailable_players?.home||[];
+    const ua=d.lineups?.unavailable_players?.away||[];
+    if(!uh.length&&!ua.length) return '';
+    const icon=s=>s==='injured'?'🔴':s==='suspended'?'🟡':'⚪';
+    const renderUnav=(list,title)=>{
+      if(!list.length) return '';
+      return '<div style="margin-bottom:8px"><div style="font-size:10px;font-weight:700;color:#888;margin-bottom:4px;text-transform:uppercase">'+title+'</div>'+
+        list.map(p=>'<div style="font-size:11px;color:var(--text3);padding:2px 0">'+icon(p.status)+' '+(p.short_name||p.name)+' <span style="color:#555;font-size:10px">'+(p.reason||p.status||'')+'</span></div>').join('')+'</div>';
+    };
+    return '<div style="margin-top:10px;padding:10px;background:rgba(255,60,60,0.06);border:1px solid rgba(255,60,60,0.15);border-radius:10px">'+
+      '<div style="font-size:11px;font-weight:700;color:#ff6b6b;margin-bottom:8px">⚠️ Indisponíveis</div>'+
+      renderUnav(uh,d.evento?.home_team||'Casa')+
+      renderUnav(ua,d.evento?.away_team||'Fora')+
+    '</div>';
+  })()}
   `;
 }
 
@@ -1830,6 +1927,117 @@ async function carregarClassificacao(){
 }
 
 /* ── HISTÓRICO ── */
+// ── COPA DO MUNDO 2026 ──────────────────────────────────────────────
+const GRUPOS_COPA = {
+  A:['Mexico','Czechia','South Africa','South Korea'],
+  B:['Bosnia & Herzegovina','Canada','Qatar','Switzerland'],
+  C:['Brazil','Haiti','Morocco','Scotland'],
+  D:['Australia','Paraguay','Türkiye','USA'],
+  E:['Curaçao','Ecuador','Germany',"Côte d'Ivoire"],
+  F:['Japan','Netherlands','Sweden','Tunisia'],
+  G:['Belgium','Egypt','Iran','New Zealand'],
+  H:['Cabo Verde','Saudi Arabia','Spain','Uruguay'],
+  I:['France','Iraq','Norway','Senegal'],
+  J:['Algeria','Argentina','Austria','Jordan'],
+  K:['Colombia','DR Congo','Portugal','Uzbekistan'],
+  L:['Croatia','England','Ghana','Panama'],
+};
+
+let copaCarregada=false;
+async function carregarCopa(){
+  if(copaCarregada)return;
+  copaCarregada=true;
+  const el=document.getElementById('copa-area');
+  el.innerHTML=`<div class="loading"><div class="spinner-wrap"><div class="spinner"></div><div class="spinner-pct">0%</div></div><p>Carregando Copa 2026...</p></div>`;
+  try{
+    // Busca jogos da Copa do Mundo
+    const [jogosR] = await Promise.allSettled([
+      apiFetch('/api/worldcup/matches',null,3600000)
+    ]);
+    const jogos = jogosR.status==='fulfilled' ? (jogosR.value?.results||[]) : [];
+
+    // Agrupa jogos por grupo/rodada
+    const hoje = new Date();
+    const proximos = jogos.filter(j=>new Date(j.event_date)>=hoje).slice(0,16);
+    const finalizados = jogos.filter(j=>j.status==='finished'||j.period==='FT').slice(-8).reverse();
+
+    let html = `<div style="text-align:center;margin-bottom:20px">
+      <div style="font-size:28px">🏆</div>
+      <div style="font-family:'Bebas Neue',sans-serif;font-size:24px;letter-spacing:0.1em;color:var(--green)">COPA DO MUNDO 2026</div>
+      <div style="font-size:12px;color:var(--text3)">48 seleções · 12 grupos · EUA, México e Canadá</div>
+    </div>`;
+
+    // Grupos
+    html+=`<div class="slabel" style="margin-bottom:12px">GRUPOS</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:20px">`;
+    for(const [grp,teams] of Object.entries(GRUPOS_COPA)){
+      html+=`<div style="background:rgba(255,255,255,0.04);border:1px solid var(--border);border-radius:12px;padding:10px">
+        <div style="font-family:'Bebas Neue',sans-serif;font-size:14px;color:var(--green);margin-bottom:6px">GRUPO ${grp}</div>
+        ${teams.map(t=>`<div style="font-size:11px;color:var(--text2);padding:2px 0;display:flex;align-items:center;gap:6px">
+          <img src="${API}/img/team/${buscarIdSeleção(t)}/" style="width:16px;height:16px;object-fit:contain" onerror="this.style.display='none'">
+          ${t}
+        </div>`).join('')}
+      </div>`;
+    }
+    html+=`</div>`;
+
+    // Próximos jogos
+    if(proximos.length){
+      html+=`<div class="slabel" style="margin-bottom:10px">PRÓXIMOS JOGOS</div>`;
+      html+=proximos.map(j=>{
+        const d=new Date(j.event_date);
+        const fmt=d.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',timeZone:'America/Sao_Paulo'})+' '+d.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit',timeZone:'America/Sao_Paulo'});
+        return `<div class="match-card" style="cursor:pointer" onclick="abrirJogo(${j.id})">
+          <div style="display:flex;align-items:center;gap:10px;justify-content:space-between">
+            <div style="display:flex;align-items:center;gap:8px;flex:1">
+              <img src="${API}/img/team/${j.home_team_id}/" style="width:28px;height:28px;object-fit:contain" onerror="this.style.display='none'">
+              <span style="font-family:'Bebas Neue',sans-serif;font-size:15px">${j.home_team}</span>
+            </div>
+            <div style="text-align:center;min-width:60px">
+              <div style="font-size:11px;color:var(--text3)">${fmt}</div>
+              <div style="font-size:10px;color:#555">${j.round_name||''}</div>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;flex:1;justify-content:flex-end">
+              <span style="font-family:'Bebas Neue',sans-serif;font-size:15px">${j.away_team}</span>
+              <img src="${API}/img/team/${j.away_team_id}/" style="width:28px;height:28px;object-fit:contain" onerror="this.style.display='none'">
+            </div>
+          </div>
+        </div>`;
+      }).join('');
+    }
+
+    // Resultados recentes
+    if(finalizados.length){
+      html+=`<div class="slabel" style="margin:16px 0 10px">RESULTADOS RECENTES</div>`;
+      html+=finalizados.map(j=>`<div class="match-card" style="cursor:pointer" onclick="abrirJogo(${j.id})">
+        <div style="display:flex;align-items:center;gap:10px;justify-content:space-between">
+          <div style="display:flex;align-items:center;gap:8px;flex:1">
+            <img src="${API}/img/team/${j.home_team_id}/" style="width:28px;height:28px;object-fit:contain" onerror="this.style.display='none'">
+            <span style="font-family:'Bebas Neue',sans-serif;font-size:15px">${j.home_team}</span>
+          </div>
+          <div style="font-family:'Bebas Neue',sans-serif;font-size:20px;color:var(--green)">${j.home_score} - ${j.away_score}</div>
+          <div style="display:flex;align-items:center;gap:8px;flex:1;justify-content:flex-end">
+            <span style="font-family:'Bebas Neue',sans-serif;font-size:15px">${j.away_team}</span>
+            <img src="${API}/img/team/${j.away_team_id}/" style="width:28px;height:28px;object-fit:contain" onerror="this.style.display='none'">
+          </div>
+        </div>
+      </div>`).join('');
+    }
+
+    if(!proximos.length&&!finalizados.length){
+      html+=`<div class="empty"><div class="empty-icon">⏳</div><p>Jogos da Copa começam em Junho de 2026</p></div>`;
+    }
+
+    el.innerHTML=html;
+  }catch(e){
+    copaCarregada=false;
+    el.innerHTML=`<div class="err">❌ ${e.message}</div>`;
+  }
+}
+
+// Helper temporário — mapeamento de seleções para IDs (será resolvido pela API)
+function buscarIdSeleção(nome){return '';}
+
 function renderHist(){
   const h=histGet();const area=document.getElementById('hist-area');
   if(!h.length){area.innerHTML=`<div class="empty"><div class="empty-icon">📋</div><p>Nenhuma consulta ainda.</p></div>`;return;}
@@ -1850,8 +2058,9 @@ function initials(n){return(n||'?').split(' ').map(w=>w[0]).join('').substring(0
 function esc(s){return(s||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'");}
 function fmtTs(ts){if(!ts)return'';const d=new Date(ts);return`${d.getDate().toString().padStart(2,'0')}/${(d.getMonth()+1).toString().padStart(2,'0')} ${d.getHours().toString().padStart(2,'0')}:${d.getMinutes().toString().padStart(2,'0')}`;}
 function fmtHora(iso){if(!iso)return'—';try{return new Date(iso).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit',timeZone:'America/Sao_Paulo'});}catch{return iso.slice(11,16);}}
-function today(){return new Date().toISOString().slice(0,10);}
-function offsetData(n){const d=new Date();d.setDate(d.getDate()+n);return d.toISOString().slice(0,10);}
+function _brDate(d){const br=new Date(d.getTime()-3*60*60*1000);return br.toISOString().slice(0,10);}
+function today(){return _brDate(new Date());}
+function offsetData(n){const d=new Date();d.setDate(d.getDate()+n);return _brDate(d);}
 function isGoleiro(pos){if(!pos)return false;const p=pos.toLowerCase();return p==='goalkeeper'||p==='g'||p.includes('goleiro')||p.includes('keeper');}
 function grupoPos(pos){if(!pos)return'Outros';const p=pos.toLowerCase();if(p==='g'||p.includes('goalkeeper')||p.includes('goleiro'))return'Goleiros';if(p==='d'||p.includes('defender')||p.includes('back'))return'Defensores';if(p==='m'||p.includes('midfielder'))return'Meias';if(p==='f'||p.includes('forward')||p.includes('attacker')||p.includes('striker'))return'Atacantes';return'Outros';}
 function posEmoji(g){return{Goleiros:'🧤',Defensores:'🛡️',Meias:'⚙️',Atacantes:'🎯',Outros:'⚽'}[g]||'⚽';}
@@ -2048,7 +2257,7 @@ async function buscarJogador(){
 
     // Tentativa 1: busca direta pelo nome completo
     try{
-      const r = await fetch(`${API}/api/jogadores?name=${encodeURIComponent(q)}&limit=100`);
+      const r = await fetch(`${API}/api/jogadores?name=${encodeURIComponent(q)}&limit=200`);
       const d = await r.json();
       players = d.results || [];
     }catch(_){}
@@ -2059,7 +2268,7 @@ async function buscarJogador(){
       const nome = tokens[0];
       const time = tokens.slice(1).join(' ');
       try{
-        const r2 = await fetch(`${API}/api/jogadores?name=${encodeURIComponent(nome)}&team_name=${encodeURIComponent(time)}&limit=100`);
+        const r2 = await fetch(`${API}/api/jogadores?name=${encodeURIComponent(nome)}&team_name=${encodeURIComponent(time)}&limit=200`);
         const d2 = await r2.json();
         const extra = d2.results || [];
         const ids = new Set(players.map(p=>p.id));
@@ -2101,9 +2310,9 @@ async function buscarJogador(){
           Ex: <strong>"Pedro Flamengo"</strong> ou <strong>"Ganso Fluminense"</strong>
         </p></div>`;
     } else {
-      area.innerHTML = `<div class="player-results">`+players.slice(0,20).map(p=>{
+      area.innerHTML = `<div class="player-results">`+players.slice(0,50).map(p=>{
         const pos = p.position||'—';
-        const team = p.current_team?.name||p.current_team||p.team?.name||p.team||'—';
+        const team = p.current_team?.name||p.current_team?.short_name||(typeof p.current_team==='string'?p.current_team:null)||p.team?.name||p.team?.short_name||(typeof p.team==='string'?p.team:null)||p.club?.name||p.club||'—';
         const country = p.nationality||p.country||p.nationality_code||'';
         return `<div class="player-result-item" onclick="verStatsJogadorDireto(${p.id},'${esc(p.name||p.display_name)}','${esc(team)}','${esc(pos)}')">
           <div class="pr-photo">
@@ -2344,10 +2553,18 @@ function renderArbitros(arbs){
           ${ref.avg_fouls?`<span>⚡ ${Number(ref.avg_fouls).toFixed(1)} faltas/jogo</span>`:''}
           <span style="color:#555">${ref.matches||0} partidas</span>
         </div>
-        ${ref.jogos&&ref.jogos.length?`<div style="font-size:10px;color:var(--text3);margin-top:4px">
-          ${ref.jogos.slice(0,2).map(j=>`📅 ${j.home_team} × ${j.away_team} · ${j.league_name}`).join('<br>')}
-          ${ref.jogos.length>2?`<span style="color:#555"> +${ref.jogos.length-2} jogo(s)</span>`:''}
-        </div>`:'<div style="font-size:10px;color:#555;margin-top:4px">Sem jogos confirmados nos próximos 7 dias</div>'}
+        ${ref.jogos&&ref.jogos.length?`<div style="margin-top:7px;display:flex;flex-direction:column;gap:5px">
+          ${ref.jogos.slice(0,3).map((j,i)=>{
+            const d=j.event_date?new Date(j.event_date):null;
+            const dataFmt=d?d.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',timeZone:'America/Sao_Paulo'})+' '+d.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit',timeZone:'America/Sao_Paulo'}):'';
+            const isNext=i===0;
+            return `<div style="background:${isNext?'rgba(57,255,20,.08)':'rgba(255,255,255,.03)'};border:1px solid ${isNext?'rgba(57,255,20,.25)':'rgba(255,255,255,.07)'};border-radius:8px;padding:6px 10px">
+              <div style="font-size:12px;font-weight:700;color:${isNext?'#e8e8e8':'#aaa'}">${j.home_team} × ${j.away_team}</div>
+              <div style="font-size:10px;color:${isNext?'var(--green)':'#666'};margin-top:2px">${dataFmt?'📅 '+dataFmt:''} ${j.league_name!=='—'?'· '+j.league_name:''}</div>
+            </div>`;
+          }).join('')}
+          ${ref.jogos.length>3?`<div style="font-size:10px;color:#555;text-align:center">+${ref.jogos.length-3} jogo(s)</div>`:''}
+        </div>`:`<div style="margin-top:6px;font-size:11px;color:#444;font-style:italic;padding:4px 2px">Sem jogos nos próximos 7 dias</div>`}
       </div>
       <div class="pr-pos" style="color:#ff9100;border-color:rgba(255,145,0,.3);background:rgba(255,145,0,.08)">${ref.matches||'?'}🎮</div>
     </div>`).join('');
@@ -2402,6 +2619,21 @@ async function verStatsArbitro(id, nome){
       </div>
       ${avgY>=4?`<div style="background:rgba(255,23,68,.1);border:1px solid rgba(255,23,68,.3);border-radius:10px;padding:10px 14px;font-size:12px;color:var(--red);margin-bottom:12px">⚠️ Árbitro com histórico de <strong>muitos cartões</strong> — considere Over Cartões</div>`:''}
       ${Number(avg.penalties_per_game||0)>=0.4?`<div style="background:rgba(255,145,0,.1);border:1px solid rgba(255,145,0,.3);border-radius:10px;padding:10px 14px;font-size:12px;color:var(--orange);margin-bottom:12px">⚠️ Árbitro que costuma marcar pênaltis — média ${Number(avg.penalties_per_game||0).toFixed(1)}/jogo</div>`:''}
+      ${(d.proximos_jogos||[]).length?`
+      <div class="slabel" style="margin-bottom:8px;margin-top:4px">PRÓXIMOS JOGOS</div>
+      <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:16px">
+        ${(d.proximos_jogos||[]).map(j=>{
+          const dt=j.event_date?new Date(j.event_date):null;
+          const fmt=dt?dt.toLocaleDateString('pt-BR',{weekday:'short',day:'2-digit',month:'2-digit',timeZone:'America/Sao_Paulo'})+' '+dt.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit',timeZone:'America/Sao_Paulo'}):'';
+          return `<div style="background:rgba(57,255,20,.07);border:1px solid rgba(57,255,20,.2);border-radius:10px;padding:10px 14px;cursor:pointer" onclick="abrirJogo(${j.id})">
+            <div style="font-size:14px;font-weight:700;color:#eee">${j.home_team} × ${j.away_team}</div>
+            <div style="display:flex;gap:10px;margin-top:4px;flex-wrap:wrap">
+              ${fmt?`<span style="font-size:11px;color:var(--green)">📅 ${fmt}</span>`:''}
+              <span style="font-size:11px;color:#666">${j.league_name}</span>
+            </div>
+          </div>`;
+        }).join('')}
+      </div>`:''}
       <div class="slabel" style="margin-bottom:8px">ÚLTIMOS ${Math.min(jogos.length,10)} JOGOS</div>
       ${jogos.slice(0,10).map(j=>{
         // BSD /referees/{id}/matches/ — campos direto na raiz do item do jogo
@@ -2528,4 +2760,4 @@ document.addEventListener('keydown',e=>{if(e.key==='Enter'&&document.activeEleme
 
 
 </body>
-</html>
+  </html>
