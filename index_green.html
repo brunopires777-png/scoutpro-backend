@@ -1182,7 +1182,7 @@ async function verStats(playerId,playerName,playerPhoto,playerPos){
       // Cor do adversário: verde=vitória, vermelho=derrota, cinza=empate
       const oppColor = result==='W' ? 'var(--green)' : result==='L' ? 'var(--red)' : 'var(--text2)';
       tbody+=`<tr><td style="font-size:11px;color:var(--text2)">${g.data||'—'}</td><td style="color:${oppColor};font-weight:${result==='W'||result==='L'?'600':'400'}">${oppDisplay}</td><td><span class="${sc}">${g.score||'—'}</span></td>`;
-      cols.forEach(c=>{const val=g[c.key];tbody+=val!==null&&val!==undefined?`<td class="num">${val}</td>`:`<td class="nd">—</td>`;});
+      cols.forEach(c=>{const val=g[c.key];const num=parseFloat(val);const isBlue=!isNaN(num)&&num>=1&&num<=15;tbody+=val!==null&&val!==undefined?`<td class="num"${isBlue?' style="color:#4fc3f7;font-weight:700"':''}>${val}</td>`:`<td class="nd">—</td>`;});
       tbody+=`</tr>`;
     });
     let avgRow=`<tr class="avg-row"><td>MÉDIA</td><td>—</td><td>—</td>`;
@@ -1225,7 +1225,7 @@ async function verStats(playerId,playerName,playerPhoto,playerPos){
           </div>
           ${data.fromCache?`<span class="cache-pill">💾 Cache</span>`:''}
         </div>
-        \${profilePills}
+        ${profilePills}
         <div class="slabel">Últimos 7 jogos</div>
         <div class="tbl-wrap"><table><thead>${thead}</thead><tbody>${tbody}${avgRow}</tbody></table></div>
         <div style="display:flex;gap:12px;margin-top:10px;font-size:11px;flex-wrap:wrap">
@@ -1413,6 +1413,9 @@ function renderMatchCard(j){
       </div>
     </div>
     ${pills}
+    <div style="font-size:10px;color:#444;padding:2px 8px 4px;text-align:right;font-style:italic">
+      ${j.referee?'🟨 '+j.referee:'Árbitro não informado'}
+    </div>
   </div>`;
 }
 
@@ -1547,7 +1550,7 @@ function renderMtResumo(d){
     ?? d.predicao?.markets?.expected_goals?.away
     ?? d.predicao?.expected_goals?.away ?? null;
   // Sempre mostra xG — se jogo não iniciou, mostra xG predito
-  const xgLabel = (ev?.status==='finished'||ev?.status==='inprogress') ? 'xG' : 'xG PREDITO';
+  const xgLabel = 'xG'; // sempre simples
   {
     const fmtXg = v => (v!=null && !isNaN(v)) ? Number(v).toFixed(2) : '—';
     html+=`<div style="display:flex;gap:8px;margin-top:12px">
@@ -1719,7 +1722,7 @@ function renderMtJogadores(d){
     return `<div style="margin-bottom:16px">
       <div style="font-size:11px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:#888;margin-bottom:10px;padding-bottom:6px;border-bottom:1px solid rgba(60,60,60,0.5)">${titulo}</div>
       ${players.map(p=>{
-        const name=p.player?.short_name||p.player?.name||p.name||'—';
+        const name=p.player?.name||p.player?.short_name||p.player?.display_name||p.name||p.short_name||p.display_name||'—';
         const pos=p.player?.position||p.position||'';
         const min=p.minutes_played||p.mins||0;
         const gls=p.goals??0;
@@ -2760,4 +2763,4 @@ document.addEventListener('keydown',e=>{if(e.key==='Enter'&&document.activeEleme
 
 
 </body>
-  </html>
+</html>
