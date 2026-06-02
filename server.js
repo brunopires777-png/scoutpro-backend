@@ -214,11 +214,23 @@ app.get('/api/worldcup/squads', async (req, res) => {
 app.get('/api/worldcup/matches', async (req, res) => {
   try {
     const { league_id } = req.query;
-    // Copa do Mundo 2026 usa league_id específico — busca eventos
+    // Busca a liga Copa do Mundo 2026 pelo nome se não tem ID
+    let lgId = league_id;
+    if (!lgId) {
+      try {
+        const lgs = await bsd('/leagues/', { search: 'World Cup', limit: 10 });
+        const wc = (lgs.results||[]).find(l =>
+          l.name?.toLowerCase().includes('world cup') ||
+          l.name?.toLowerCase().includes('mundial')
+        );
+        lgId = wc?.id || '';
+        if (lgId) console.log(`[worldcup] liga encontrada: ${wc.name} id=${lgId}`);
+      } catch(_) {}
+    }
     const data = await bsd('/events/', {
-      league_id: league_id || '',
-      date_from: '2026-06-11',
-      date_to:   '2026-07-19',
+      ...(lgId ? { league_id: lgId } : {}),
+      date_from: '2026-06-01',
+      date_to:   '2026-07-20',
       limit: 200
     });
     res.json(data);
@@ -1278,22 +1290,11 @@ app.get('/api/jogadores', async (req, res) => {
 
     const teamQuery = (team_name || '').trim();
 
-    // ── CAMINHO A: tem nome de time → prioriza busca pelo time
+    // ── CAMINHO A: tem nome de time → busca pelo time e filtra por nome
     if (teamQuery) {
-      // Passo 1: encontrar o time pelo nome (via standings — mais confiável para times BR)
       const teamCandidates = new Map(); // id → name
-      try {
-        // Busca por standings que incluem times brasileiros
-        const stData = await bsd('/standings/', { search: teamQuery, limit: 20 });
-        for (const s of (stData.results||[])) {
-          const tid  = s.team_id || s.team?.id;
-          const tname = s.team_name || s.team?.name || s.team;
-          if (tid && tname && String(tname).toLowerCase().includes(teamQuery.toLowerCase()))
-            teamCandidates.set(String(tid), tname);
-        }
-      } catch(_) {}
 
-      // Busca também via /teams/?search=
+      // Passo 1: busca time via /teams/?search= (v2 suporta search)
       try {
         const tData = await bsd('/teams/', { search: teamQuery, limit: 10 });
         for (const t of (tData.results||[])) {
@@ -1301,47 +1302,36 @@ app.get('/api/jogadores', async (req, res) => {
         }
       } catch(_) {}
 
-      // Passo 2: para cada time encontrado, busca os jogadores e filtra por nome
+      // Busca também via eventos (para times brasileiros)
+      try {
+        const df2 = new Date(Date.now()-30*86400000).toISOString().slice(0,10);
+        const dt2 = new Date().toISOString().slice(0,10);
+        const evData = await bsd('/events/', { date_from: df2, date_to: dt2, limit: 200 });
+        const norm = s => (s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+        const tq = norm(teamQuery);
+        for (const ev of (evData.results||[])) {
+          const h = ev.home_team, hid = String(ev.home_team_id||ev.home_team_obj?.id||'');
+          const a = ev.away_team, aid = String(ev.away_team_id||ev.away_team_obj?.id||'');
+          if (norm(h).includes(tq) && hid) teamCandidates.set(hid, h);
+          if (norm(a).includes(tq) && aid) teamCandidates.set(aid, a);
+        }
+      } catch(_) {}
+
+      // Passo 2: para cada time, usa /teams/{id}/squad/ (v2) e filtra por nome
       const nameFilter = (name || '').toLowerCase();
       await Promise.all([...teamCandidates.entries()].slice(0, 5).map(async ([tid, tname]) => {
         const teamObj = { id: Number(tid), name: tname };
-        // Busca via eventos recentes + player-stats (fonte correta para times BR)
-        // /players/?team=ID é IGNORADO — BSD retorna times errados para BR
         try {
-          const df = new Date(Date.now()-60*86400000).toISOString().slice(0,10);
-          const dt = new Date().toISOString().slice(0,10);
-          // Busca eventos sem filtro e filtra manualmente (BSD ignora home_team_id)
-          const evData = await bsd('/events/', { date_from: df, date_to: dt, limit: 200 });
-          const tidStr = String(tid);
-          const teamEvs = (evData.results||[]).filter(ev => {
-            const hid = String(ev.home_team_id||ev.home_team_obj?.id||'');
-            const aid = String(ev.away_team_id||ev.away_team_obj?.id||'');
-            return hid === tidStr || aid === tidStr;
-          }).slice(0, 5);
-
-          console.log(`[jogadores] time ${tid} (${tname}): ${teamEvs.length} eventos encontrados`);
-
-          const seen2 = new Set();
-          for (const ev of teamEvs) {
-            try {
-              const evHomeId = String(ev.home_team_id||ev.home_team_obj?.id||'');
-              const isHomeTeam = evHomeId === tidStr;
-              const psData = await bsd('/player-stats/', { event: ev.id, limit: 50 });
-              for (const ps of (psData.results||[])) {
-                const pid = String(ps.player?.id||ps.player_id||'');
-                if (!pid || seen2.has(pid)) continue;
-                // Filtra pelo lado correto
-                const hasIsHome = ps.is_home !== undefined && ps.is_home !== null;
-                const isOurSide = hasIsHome ? ps.is_home === isHomeTeam : true;
-                if (!isOurSide) continue;
-                const pname = (ps.player?.name||'').toLowerCase();
-                if (nameFilter && !pname.includes(nameFilter)) continue;
-                seen2.add(pid);
-                addPlayers([ps.player].filter(Boolean), teamObj);
-              }
-            } catch(_) {}
-          }
-        } catch(_) {}
+          const sq = await bsd(`/teams/${tid}/squad/`);
+          const list = sq.players || sq.squad || sq.results || [];
+          const filtered = list.filter(p =>
+            !nameFilter || (p.name||p.display_name||'').toLowerCase().includes(nameFilter)
+          );
+          console.log(`[jogadores] squad ${tname}: ${list.length} total, ${filtered.length} match "${nameFilter}"`);
+          addPlayers(filtered, teamObj);
+        } catch(e) {
+          console.log(`[jogadores] squad ${tid} err: ${e.message}`);
+        }
       }));
     }
 
