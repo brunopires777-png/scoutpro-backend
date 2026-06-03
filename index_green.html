@@ -1204,11 +1204,11 @@ async function verStats(playerId,playerName,playerPhoto,playerPos){
         const pills = [
           pd.availability==='injured'   ? '🔴 Lesionado'           : null,
           pd.availability==='suspended' ? '🟡 Suspenso'            : null,
-          mv                            ? `💰 \${mv}`              : null,
-          pd.contract_until             ? `📋 até \${pd.contract_until.slice(0,4)}` : null,
-          pd.height_cm                  ? `📏 \${pd.height_cm}cm`  : null,
+          mv                            ? `💰 ${mv}`              : null,
+          pd.contract_until             ? `📋 até ${pd.contract_until.slice(0,4)}` : null,
+          pd.height_cm                  ? `📏 ${pd.height_cm}cm`  : null,
           pd.preferred_foot==='right'   ? '🦶 Pé Direito'          : pd.preferred_foot==='left' ? '🦶 Pé Esquerdo' : null,
-          pd.nationality                ? `🌍 \${pd.nationality}`  : null,
+          pd.nationality                ? `🌍 ${pd.nationality}`  : null,
         ].filter(Boolean);
         if (pills.length)
           profilePills = '<div style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:10px">'+pills.map(p=>'<span class="pill" style="font-size:10px;padding:3px 8px">'+p+'</span>').join('')+'</div>';
@@ -2238,8 +2238,42 @@ function selecionarLiga(id, name, country){
 
 /* ── BUSCA DE JOGADOR ── */
 async function buscarJogador(){
-  const q = document.getElementById('inp-player').value.trim();
-  if(!q) return;
+  const rawQ = document.getElementById('inp-player').value.trim();
+  if(!rawQ) return;
+  // Separa nome do jogador do nome do time
+  // Ex: "Pedro Flamengo" → playerName="Pedro", teamName="Flamengo"
+  // Ex: "Vini Real Madrid" → playerName="Vini", teamName="Real Madrid"
+  const words = rawQ.split(' ');
+  let playerName = rawQ, teamName = '';
+  if(words.length >= 2){
+    const knownTeams = ['flamengo','palmeiras','corinthians','são paulo','sao paulo','santos',
+      'fluminense','vasco','botafogo','atletico','atlético','cruzeiro','gremio','grêmio',
+      'internacional','bahia','fortaleza','sport','bragantino','red bull','goias','goiás',
+      'cuiaba','cuiabá','juventude','criciuma','vitoria','vitória','chapecoense',
+      'real madrid','barcelona','manchester','chelsea','liverpool','arsenal','tottenham',
+      'juventus','milan','inter','napoli','paris','psg','lyon','marseille',
+      'bayern','dortmund','leverkusen','ajax','porto','benfica','sporting','celtic',
+      'river','boca','independiente','racing','america','tigres','monterrey','chivas'];
+    const norm = s => s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim();
+    const nq = norm(rawQ);
+    // Tenta match de time com as últimas 1 ou 2 palavras
+    let matched = false;
+    for(let take=2; take>=1 && !matched; take--){
+      const candidate = words.slice(-take).join(' ');
+      const nc = norm(candidate);
+      if(knownTeams.some(t=>nc===t||t.includes(nc)||nc.includes(t))){
+        teamName   = candidate;
+        playerName = words.slice(0,-take).join(' ') || rawQ;
+        matched    = true;
+      }
+    }
+    // Mesmo sem match explícito na lista, se >2 palavras usa a última como time
+    if(!matched && words.length >= 3){
+      teamName   = words[words.length-1];
+      playerName = words.slice(0,-1).join(' ');
+    }
+  }
+  const q = rawQ; // mantém q para compatibilidade com código abaixo
   const btn = document.getElementById('btn-buscar-player');
   btn.disabled = true; btn.textContent = '...';
   const area = document.getElementById('player-area');
@@ -2253,51 +2287,32 @@ async function buscarJogador(){
   }, 150);
 
   try{
-    // Detecta formato "Nome Time" ex: "Pedro Flamengo", "Ganso Fluminense"
-    // Estratégia: tenta busca completa, depois divide em nome + time
-    const tokens = q.trim().split(/\s+/);
     let players = [];
+    const seen = new Set();
+    const merge = list => (list||[]).forEach(p=>{ if(p?.id&&!seen.has(p.id)){seen.add(p.id);players.push(p);} });
 
-    // Tentativa 1: busca direta pelo nome completo
-    try{
-      const r = await fetch(`${API}/api/jogadores?name=${encodeURIComponent(q)}&limit=200`);
-      const d = await r.json();
-      players = d.results || [];
-    }catch(_){}
-
-    // Tentativa 2: se poucos resultados, interpreta último(s) token(s) como time
-    if(players.length < 3 && tokens.length >= 2){
-      // Tenta: primeiro token = nome, resto = time
-      const nome = tokens[0];
-      const time = tokens.slice(1).join(' ');
+    // Usa os valores separados pelo novo código acima (playerName / teamName)
+    // Se tem time: busca pelo squad do time filtrado por nome → mais preciso
+    if(teamName){
       try{
-        const r2 = await fetch(`${API}/api/jogadores?name=${encodeURIComponent(nome)}&team_name=${encodeURIComponent(time)}&limit=200`);
-        const d2 = await r2.json();
-        const extra = d2.results || [];
-        const ids = new Set(players.map(p=>p.id));
-        extra.forEach(p=>{ if(!ids.has(p.id)){ ids.add(p.id); players.push(p); }});
+        const r = await fetch(`${API}/api/jogadores?name=${encodeURIComponent(playerName)}&team_name=${encodeURIComponent(teamName)}&limit=200`);
+        merge((await r.json()).results);
       }catch(_){}
-
-      // Também tenta dois primeiros tokens = nome, último = time
-      if(tokens.length >= 3){
-        const nome2 = tokens.slice(0,-1).join(' ');
-        const time2 = tokens[tokens.length-1];
-        try{
-          const r3 = await fetch(`${API}/api/jogadores?name=${encodeURIComponent(nome2)}&team_name=${encodeURIComponent(time2)}&limit=50`);
-          const d3 = await r3.json();
-          const ids = new Set(players.map(p=>p.id));
-          (d3.results||[]).forEach(p=>{ if(!ids.has(p.id)){ ids.add(p.id); players.push(p); }});
-        }catch(_){}
-      }
     }
 
-    // Tentativa 3: busca só pelo primeiro nome com limite alto
+    // Se não achou (ou sem time): busca direta por nome
     if(players.length < 2){
       try{
-        const r4 = await fetch(`${API}/api/jogadores?name=${encodeURIComponent(tokens[0])}&limit=100`);
-        const d4 = await r4.json();
-        const ids = new Set(players.map(p=>p.id));
-        (d4.results||[]).forEach(p=>{ if(!ids.has(p.id)){ ids.add(p.id); players.push(p); }});
+        const r = await fetch(`${API}/api/jogadores?name=${encodeURIComponent(playerName||rawQ)}&limit=200`);
+        merge((await r.json()).results);
+      }catch(_){}
+    }
+
+    // Se ainda poucos resultados e tinha time, tenta só o nome sem time
+    if(players.length < 2 && teamName){
+      try{
+        const r = await fetch(`${API}/api/jogadores?name=${encodeURIComponent(rawQ)}&limit=100`);
+        merge((await r.json()).results);
       }catch(_){}
     }
 
