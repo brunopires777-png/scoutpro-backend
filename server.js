@@ -1327,6 +1327,11 @@ app.get('/api/jogadores', async (req, res) => {
             ? list.filter(p => norm(p.name||p.display_name||'').includes(nameF))
             : list;
           console.log(`[jogadores] squad "${teamName2}": ${list.length} total → ${filtered.length} match "${nameF}"`);
+          // Log dos primeiros nomes para diagnóstico
+          if(filtered.length===0 && nameF){
+            const sample = list.slice(0,10).map(p=>p.name||p.display_name||'?').join(', ');
+            console.log(`[jogadores] nomes no squad (amostra): ${sample}`);
+          }
           addPlayers(filtered, teamObj);
         } catch(e) { console.log(`[jogadores] squad err: ${e.message}`); }
       }
