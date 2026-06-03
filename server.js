@@ -1290,49 +1290,58 @@ app.get('/api/jogadores', async (req, res) => {
 
     const teamQuery = (team_name || '').trim();
 
-    // ── CAMINHO A: tem nome de time → busca pelo time e filtra por nome
+    // ── CAMINHO A: busca por nome + time ──────────────────────────────
+    // Estratégia: encontra o team_id real via eventos → usa /players/?name=&team=
     if (teamQuery) {
-      const teamCandidates = new Map(); // id → name
+      const tq    = norm(teamQuery);
+      const nameF = norm(name || '');
+      let teamId2 = null, teamName2 = null;
 
-      // Passo 1: busca time via /teams/?search= (v2 suporta search)
+      // Busca o time via eventos recentes (mais confiável para times BR)
       try {
-        const tData = await bsd('/teams/', { search: teamQuery, limit: 10 });
-        for (const t of (tData.results||[])) {
-          if (t.id) teamCandidates.set(String(t.id), t.name);
-        }
-      } catch(_) {}
-
-      // Busca também via eventos (para times brasileiros)
-      try {
-        const df2 = new Date(Date.now()-30*86400000).toISOString().slice(0,10);
-        const dt2 = new Date().toISOString().slice(0,10);
+        const df2 = new Date(Date.now()-14*86400000).toISOString().slice(0,10);
+        const dt2 = new Date(Date.now()+7*86400000).toISOString().slice(0,10);
         const evData = await bsd('/events/', { date_from: df2, date_to: dt2, limit: 200 });
-        const norm = s => (s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
-        const tq = norm(teamQuery);
         for (const ev of (evData.results||[])) {
-          const h = ev.home_team, hid = String(ev.home_team_id||ev.home_team_obj?.id||'');
-          const a = ev.away_team, aid = String(ev.away_team_id||ev.away_team_obj?.id||'');
-          if (norm(h).includes(tq) && hid) teamCandidates.set(hid, h);
-          if (norm(a).includes(tq) && aid) teamCandidates.set(aid, a);
+          const hid = ev.home_team_id || ev.home_team_obj?.id;
+          const aid = ev.away_team_id || ev.away_team_obj?.id;
+          if (norm(ev.home_team||'').includes(tq) && hid) { teamId2 = hid; teamName2 = ev.home_team; break; }
+          if (norm(ev.away_team||'').includes(tq) && aid) { teamId2 = aid; teamName2 = ev.away_team; break; }
         }
       } catch(_) {}
 
-      // Passo 2: para cada time, usa /teams/{id}/squad/ (v2) e filtra por nome
-      const nameFilter = (name || '').toLowerCase();
-      await Promise.all([...teamCandidates.entries()].slice(0, 5).map(async ([tid, tname]) => {
-        const teamObj = { id: Number(tid), name: tname };
+      // Fallback via /teams/?search= (times europeus)
+      if (!teamId2) {
         try {
-          const sq = await bsd(`/teams/${tid}/squad/`);
-          const list = sq.players || sq.squad || sq.results || [];
-          const filtered = list.filter(p =>
-            !nameFilter || (p.name||p.display_name||'').toLowerCase().includes(nameFilter)
-          );
-          console.log(`[jogadores] squad ${tname}: ${list.length} total, ${filtered.length} match "${nameFilter}"`);
-          addPlayers(filtered, teamObj);
-        } catch(e) {
-          console.log(`[jogadores] squad ${tid} err: ${e.message}`);
+          const tData = await bsd('/teams/', { search: teamQuery, limit: 5 });
+          const t = (tData.results||[])[0];
+          if (t?.id) { teamId2 = t.id; teamName2 = t.name; }
+        } catch(_) {}
+      }
+
+      console.log(`[jogadores] time: "${teamName2}" id=${teamId2}`);
+
+      if (teamId2) {
+        const teamObj = { id: teamId2, name: teamName2 };
+
+        // Tenta /players/?name=&team= (filtro nativo v2)
+        try {
+          const pData = await bsd('/players/', { name: name||'', team: teamId2, limit: 50 });
+          addPlayers(pData.results||[], teamObj);
+          console.log(`[jogadores] /players/?name=${name}&team=${teamId2}: ${results.length}`);
+        } catch(_) {}
+
+        // Fallback: squad + filtro manual
+        if (results.length === 0) {
+          try {
+            const sq = await bsd(`/teams/${teamId2}/squad/`);
+            const list = (sq.players||sq.squad||sq.results||[])
+              .filter(p => !nameF || norm(p.name||p.display_name||'').includes(nameF));
+            addPlayers(list, teamObj);
+            console.log(`[jogadores] squad fallback: ${results.length}`);
+          } catch(_) {}
         }
-      }));
+      }
     }
 
     // ── CAMINHO B: só nome, sem time → busca direta por nome
