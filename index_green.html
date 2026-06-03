@@ -210,7 +210,7 @@ select.finput{cursor:pointer}
 
 /* ── TABLE ── */
 .tbl-wrap{overflow-x:auto;border-radius:12px;margin-top:6px}
-table{width:100%;border-collapse:collapse;min-width:480px}
+table{width:100%;border-collapse:collapse;min-width:420px}
 thead tr{background:rgba(0,0,0,0.6)}
 th{font-size:11px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:var(--text);padding:10px 12px;text-align:center;white-space:nowrap;border-bottom:1px solid var(--border)}
 th:first-child{text-align:left;color:var(--text2);min-width:110px}
@@ -1173,11 +1173,19 @@ async function verStats(playerId,playerName,playerPhoto,playerPos){
       const sc = result==='W'?'score-w':result==='L'?'score-l':'score-d';
       // Extrai só o adversário quando opponent tem " × " (fallback do servidor)
       let oppDisplay = g.opponent || '—';
-      if (oppDisplay.includes(' × ') && selTeam?.name) {
+      if (oppDisplay.includes(' × ')) {
         const parts = oppDisplay.split(' × ');
-        const mine = (selTeam.name||'').toLowerCase().split(' ')[0];
-        // Qual parte NÃO é o time do jogador?
-        oppDisplay = parts[0].toLowerCase().includes(mine) ? parts[1] : parts[0];
+        if (selTeam?.name) {
+          const mine = (selTeam.name||'').toLowerCase().split(' ')[0];
+          oppDisplay = parts[0].toLowerCase().includes(mine) ? parts[1] : parts[0];
+        } else if (playerTeam) {
+          // playerTeam pode estar disponível no contexto do jogador buscado
+          const mine = playerTeam.toLowerCase().split(' ')[0];
+          oppDisplay = parts[0].toLowerCase().includes(mine) ? parts[1] : parts[0];
+        } else {
+          // Sem info do time: mostra os dois times em formato menor
+          oppDisplay = parts[0] + ' ×<br>' + parts[1];
+        }
       }
       // Cor do adversário: verde=vitória, vermelho=derrota, cinza=empate
       const oppColor = result==='W' ? 'var(--green)' : result==='L' ? 'var(--red)' : 'var(--text2)';
@@ -1199,8 +1207,8 @@ async function verStats(playerId,playerName,playerPhoto,playerPos){
       const pd = pr?.detail;
       if (pd) {
         const mv = pd.market_value_eur >= 1000000
-          ? `€\${(pd.market_value_eur/1000000).toFixed(1)}M`
-          : pd.market_value_eur > 0 ? `€\${(pd.market_value_eur/1000).toFixed(0)}K` : null;
+          ? `€${(pd.market_value_eur/1000000).toFixed(1)}M`
+          : pd.market_value_eur > 0 ? `€${(pd.market_value_eur/1000).toFixed(0)}K` : null;
         const pills = [
           pd.availability==='injured'   ? '🔴 Lesionado'           : null,
           pd.availability==='suspended' ? '🟡 Suspenso'            : null,
@@ -1413,10 +1421,27 @@ function renderMatchCard(j){
       </div>
     </div>
     ${pills}
-    <div style="font-size:10px;color:#444;padding:2px 8px 4px;text-align:right;font-style:italic">
-      ${j.referee?'🟨 '+j.referee:'Árbitro não informado'}
+    <div style="font-size:10px;padding:2px 8px 6px;text-align:right">
+      ${j.referee
+        ? `<span style="color:#888;cursor:pointer;text-decoration:none" onclick="buscarArbitroDoJogo('${j.referee.replace(/'/g,"\\'")}',event)">🟨 ${j.referee}</span>`
+        : `<span style="color:#444;font-style:italic">Árbitro não informado</span>`}
     </div>
   </div>`;
+}
+
+function buscarArbitroDoJogo(nome, ev){
+  if(ev) ev.stopPropagation();
+  // Vai para aba árbitros e filtra pelo nome
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('.nav-tabs .tab').forEach(t=>t.classList.remove('active'));
+  document.getElementById('page-arbitros').classList.add('active');
+  // Ativa a aba árbitros
+  const arbTab = [...document.querySelectorAll('.nav-tabs .tab')].find(t=>t.textContent.includes('rbitro'));
+  if(arbTab) arbTab.classList.add('active');
+  // Filtra pelo nome
+  const inp = document.getElementById('inp-arbitro');
+  if(inp){ inp.value = nome; filtroArbitroInput(); }
+  setTimeout(()=>document.getElementById('page-arbitros').scrollIntoView({behavior:'smooth'}),100);
 }
 
 function filtroJogo(p,btn){
@@ -2363,6 +2388,7 @@ document.addEventListener('DOMContentLoaded',()=>{
 });
 
 async function verStatsJogadorDireto(playerId, playerName, teamName, playerPos){
+  const playerTeam = teamName || ''; // disponível para uso em opponent display
   // Usa a mesma lógica do verStats mas sem precisar selecionar time
   // Busca pelo nome do time para obter o teamId
   const area = document.getElementById('player-area');
