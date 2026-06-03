@@ -2266,37 +2266,21 @@ async function buscarJogador(){
   // Separa nome do jogador do nome do time
   // Ex: "Pedro Flamengo" → playerName="Pedro", teamName="Flamengo"
   // Ex: "Vini Real Madrid" → playerName="Vini", teamName="Real Madrid"
-  const words = rawQ.split(' ');
   let playerName = rawQ, teamName = '';
-  if(words.length >= 2){
-    const knownTeams = ['flamengo','palmeiras','corinthians','são paulo','sao paulo','santos',
-      'fluminense','vasco','botafogo','atletico','atlético','cruzeiro','gremio','grêmio',
-      'internacional','bahia','fortaleza','sport','bragantino','red bull','goias','goiás',
-      'cuiaba','cuiabá','juventude','criciuma','vitoria','vitória','chapecoense',
-      'real madrid','barcelona','manchester','chelsea','liverpool','arsenal','tottenham',
-      'juventus','milan','inter','napoli','paris','psg','lyon','marseille',
-      'bayern','dortmund','leverkusen','ajax','porto','benfica','sporting','celtic',
-      'river','boca','independiente','racing','america','tigres','monterrey','chivas'];
-    const norm = s => s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim();
-    const nq = norm(rawQ);
-    // Tenta match de time com as últimas 1 ou 2 palavras
-    let matched = false;
-    for(let take=2; take>=1 && !matched; take--){
-      const candidate = words.slice(-take).join(' ');
-      const nc = norm(candidate);
-      if(knownTeams.some(t=>nc===t||t.includes(nc)||nc.includes(t))){
-        teamName   = candidate;
-        playerName = words.slice(0,-take).join(' ') || rawQ;
-        matched    = true;
-      }
-    }
-    // Mesmo sem match explícito na lista, se >2 palavras usa a última como time
-    if(!matched && words.length >= 3){
+  // Vírgula é o separador principal: "Pedro, Flamengo"
+  if(rawQ.includes(',')) {
+    const parts = rawQ.split(',');
+    playerName = parts[0].trim();
+    teamName   = parts.slice(1).join(',').trim();
+  } else {
+    // Sem vírgula: tenta a última palavra como time se houver 2+ palavras
+    const words = rawQ.split(' ');
+    if(words.length >= 2){
       teamName   = words[words.length-1];
       playerName = words.slice(0,-1).join(' ');
     }
   }
-  const q = rawQ; // mantém q para compatibilidade com código abaixo
+  const q = rawQ;
   const btn = document.getElementById('btn-buscar-player');
   btn.disabled = true; btn.textContent = '...';
   const area = document.getElementById('player-area');
@@ -2492,7 +2476,8 @@ async function verStatsJogadorDireto(playerId, playerName, teamName, playerPos){
               <td style="padding:9px 8px;text-align:center;font-family:'Bebas Neue',sans-serif;font-size:16px;color:${rc}">${j.score||'—'}</td>
               ${cols.map(col=>{
                 const v=j[col.key];
-                return `<td style="padding:9px 8px;text-align:center;font-family:'Bebas Neue',sans-serif;font-size:16px;color:${v!=null&&v!=='—'?'#ddd':'#444'}">${v!=null&&v!=='—'?v:'—'}</td>`;
+                const _n=parseFloat(v);const _blue=!isNaN(_n)&&_n>=1&&_n<=15;
+                return `<td style="padding:9px 8px;text-align:center;font-family:'Bebas Neue',sans-serif;font-size:16px;color:${_blue?'#4fc3f7':v!=null&&v!=='—'?'#ddd':'#444'};font-weight:${_blue?'700':'400'}">${v!=null&&v!=='—'?v:'—'}</td>`;
               }).join('')}
             </tr>`;
           }).join('')}
