@@ -1422,9 +1422,7 @@ function renderMatchCard(j){
     </div>
     ${pills}
     <div style="font-size:10px;padding:2px 8px 6px;text-align:right">
-      ${j.referee
-        ? `<span style="color:#888;cursor:pointer;text-decoration:none" onclick="buscarArbitroDoJogo('${j.referee.replace(/'/g,"\\'")}',event)">🟨 ${j.referee}</span>`
-        : `<span style="color:#444;font-style:italic">Árbitro não informado</span>`}
+      ${(()=>{const rn=typeof j.referee==='string'?j.referee:(j.referee?.name||j.referee?.full_name||'');return rn?`<span style="color:#888;cursor:pointer" onclick="buscarArbitroDoJogo('${rn.replace(/'/g,'"')}',event)">🟨 ${rn}</span>`:`<span style="color:#444;font-style:italic">Árbitro não informado</span>`;})()}
     </div>
   </div>`;
 }
