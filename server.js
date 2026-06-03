@@ -1289,6 +1289,7 @@ app.get('/api/jogadores', async (req, res) => {
     };
 
     const teamQuery = (team_name || '').trim();
+    console.log(`[jogadores] recebido: name="${name}" team_name="${team_name}" teamQuery="${teamQuery}"`);
 
     // ── CAMINHO A: busca por nome + time ──────────────────────────────
     // Estratégia única e confiável:
