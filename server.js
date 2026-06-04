@@ -1335,9 +1335,10 @@ app.get('/api/jogadores', async (req, res) => {
           );
           const sq   = await sqRes.json();
           const list = sq.players || sq.squad || sq.results || [];
-          const nameF = norm(name || '');
+          const normLocal = s => (s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim();
+          const nameF = normLocal(name || '');
           const filtered = nameF
-            ? list.filter(p => norm(p.name||p.display_name||'').includes(nameF))
+            ? list.filter(p => normLocal(p.name||p.display_name||'').includes(nameF))
             : list;
           console.log(`[jogadores] squad "${teamName2}": ${list.length} total → ${filtered.length} match "${nameF}"`);
           if (filtered.length === 0 && nameF) {
