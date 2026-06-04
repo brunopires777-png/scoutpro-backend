@@ -1291,21 +1291,21 @@ app.get('/api/jogadores', async (req, res) => {
     const teamQuery = (team_name || '').trim();
     console.log(`[jogadores] recebido: name="${name}" team_name="${team_name}" teamQuery="${teamQuery}"`);
 
-    // ── CAMINHO A: busca por nome + time ──────────────────────────────
-    // Estratégia única e confiável:
-    // 1. Busca o time via eventos recentes → pega o team_id real
-    // 2. Pega o squad do time via /teams/{id}/squad/
-    // 3. Filtra por nome localmente
+    // ── CAMINHO A: busca por nome + time
     if (teamQuery) {
       const tq    = norm(teamQuery);
       const nameF = norm(name || '');
-
-      // Encontra o team_id via eventos (único método confiável para BR)
       let teamId2 = null, teamName2 = null;
+
+      // Usa fetch direto (mais confiável que bsd() que pode ter timeout diferente)
       try {
         const df2 = new Date(Date.now()-14*86400000).toISOString().slice(0,10);
         const dt2 = new Date(Date.now()+7*86400000).toISOString().slice(0,10);
-        const evData = await bsd('/events/', { date_from: df2, date_to: dt2, limit: 200 });
+        const url = `https://sports.bzzoiro.com/api/v2/events/?date_from=${df2}&date_to=${dt2}&limit=200`;
+        console.log(`[jogadores] buscando eventos: ${url.slice(0,80)}`);
+        const evRes = await fetch(url, { headers: { Authorization: `Token ${BSD_TOKEN}` } });
+        const evData = await evRes.json();
+        console.log(`[jogadores] eventos retornados: ${(evData.results||[]).length}`);
         for (const ev of (evData.results||[])) {
           const hid = ev.home_team_id || ev.home_team_obj?.id;
           const aid = ev.away_team_id || ev.away_team_obj?.id;
@@ -1314,27 +1314,29 @@ app.get('/api/jogadores', async (req, res) => {
           if (hn.includes(tq) && hid) { teamId2 = hid; teamName2 = ev.home_team; break; }
           if (an.includes(tq) && aid) { teamId2 = aid; teamName2 = ev.away_team; break; }
         }
-      } catch(e) { console.log(`[jogadores] ERRO busca eventos: ${e.message}`); }
+      } catch(e) { console.log(`[jogadores] ERRO eventos: ${e.message}`); }
 
-      console.log(`[jogadores] time: "${teamName2}" id=${teamId2}`);
+      console.log(`[jogadores] time encontrado: "${teamName2}" id=${teamId2}`);
 
       if (teamId2) {
         const teamObj = { id: teamId2, name: teamName2 };
-        // Squad do time → filtro local por nome
         try {
-          const sq   = await bsd(`/teams/${teamId2}/squad/`);
+          const sqRes = await fetch(
+            `https://sports.bzzoiro.com/api/v2/teams/${teamId2}/squad/`,
+            { headers: { Authorization: `Token ${BSD_TOKEN}` } }
+          );
+          const sq   = await sqRes.json();
           const list = sq.players || sq.squad || sq.results || [];
           const filtered = nameF
             ? list.filter(p => norm(p.name||p.display_name||'').includes(nameF))
             : list;
-          console.log(`[jogadores] squad "${teamName2}": ${list.length} total → ${filtered.length} match "${nameF}"`);
-          // Log dos primeiros nomes para diagnóstico
-          if(filtered.length===0 && nameF){
-            const sample = list.slice(0,10).map(p=>p.name||p.display_name||'?').join(', ');
-            console.log(`[jogadores] nomes no squad (amostra): ${sample}`);
+          console.log(`[jogadores] squad "${teamName2}": ${list.length} → ${filtered.length} match "${nameF}"`);
+          if (filtered.length === 0 && nameF) {
+            const sample = list.slice(0,15).map(p=>p.name||'?').join(' | ');
+            console.log(`[jogadores] nomes squad: ${sample}`);
           }
           addPlayers(filtered, teamObj);
-        } catch(e) { console.log(`[jogadores] squad err: ${e.message}`); }
+        } catch(e) { console.log(`[jogadores] ERRO squad: ${e.message}`); }
       }
     }
 
