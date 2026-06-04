@@ -1314,7 +1314,7 @@ app.get('/api/jogadores', async (req, res) => {
           if (hn.includes(tq) && hid) { teamId2 = hid; teamName2 = ev.home_team; break; }
           if (an.includes(tq) && aid) { teamId2 = aid; teamName2 = ev.away_team; break; }
         }
-      } catch(_) {}
+      } catch(e) { console.log(`[jogadores] ERRO busca eventos: ${e.message}`); }
 
       console.log(`[jogadores] time: "${teamName2}" id=${teamId2}`);
 
