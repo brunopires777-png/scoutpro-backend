@@ -2298,27 +2298,17 @@ async function buscarJogador(){
     const seen = new Set();
     const merge = list => (list||[]).forEach(p=>{ if(p?.id&&!seen.has(p.id)){seen.add(p.id);players.push(p);} });
 
-    // Usa os valores separados pelo novo código acima (playerName / teamName)
-    // Se tem time: busca pelo squad do time filtrado por nome → mais preciso
     if(teamName){
+      // Com time: busca APENAS pelo squad do time filtrado
+      // Não faz fallback genérico para não poluir com resultados errados
       try{
         const r = await fetch(`${API}/api/jogadores?name=${encodeURIComponent(playerName)}&team_name=${encodeURIComponent(teamName)}&limit=200`);
         merge((await r.json()).results);
       }catch(_){}
-    }
-
-    // Se não achou (ou sem time): busca direta por nome
-    if(players.length < 2){
+    } else {
+      // Sem time: busca direta por nome
       try{
-        const r = await fetch(`${API}/api/jogadores?name=${encodeURIComponent(playerName||rawQ)}&limit=200`);
-        merge((await r.json()).results);
-      }catch(_){}
-    }
-
-    // Se ainda poucos resultados e tinha time, tenta só o nome sem time
-    if(players.length < 2 && teamName){
-      try{
-        const r = await fetch(`${API}/api/jogadores?name=${encodeURIComponent(rawQ)}&limit=100`);
+        const r = await fetch(`${API}/api/jogadores?name=${encodeURIComponent(rawQ)}&limit=200`);
         merge((await r.json()).results);
       }catch(_){}
     }
