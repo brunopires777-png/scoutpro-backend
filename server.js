@@ -255,9 +255,9 @@ app.get('/api/debug/team', async (req, res) => {
     for (const ev of (evData.results||[])) {
       const hid = ev.home_team_id || ev.home_team_obj?.id;
       const aid = ev.away_team_id || ev.away_team_obj?.id;
-      if (norm(ev.home_team||'').includes(term))
+      if ((n=>n.includes(term)||n.split(/\s+/).some(w=>w.startsWith(term)))(norm(ev.home_team||'')))
         result.events_found.push({ side:'home', team: ev.home_team, id: hid, home_team_id: ev.home_team_id, home_team_obj_id: ev.home_team_obj?.id, home_team_obj_full: ev.home_team_obj, event_id: ev.id, event_date: ev.event_date?.slice(0,10) });
-      if (norm(ev.away_team||'').includes(term))
+      if ((n=>n.includes(term)||n.split(/\s+/).some(w=>w.startsWith(term)))(norm(ev.away_team||'')))
         result.events_found.push({ side:'away', team: ev.away_team, id: aid, away_team_id: ev.away_team_id, away_team_obj_id: ev.away_team_obj?.id, away_team_obj_full: ev.away_team_obj, event_id: ev.id, event_date: ev.event_date?.slice(0,10) });
     }
   } catch(e) { result.events_error = e.message; }
@@ -766,9 +766,9 @@ async function buscarTimePorNome(q) {
   (evData.results || []).forEach(ev => {
     const hid = ev.home_team_id || ev.home_team_obj?.id;
     const aid = ev.away_team_id || ev.away_team_obj?.id;
-    if (norm(ev.home_team||'').includes(term) && hid && !seen.has(hid))
+    if ((n=>n.includes(term)||n.split(/\s+/).some(w=>w.startsWith(term)))(norm(ev.home_team||'')) && hid && !seen.has(hid))
       seen.set(hid, { id: hid, name: ev.home_team, country: ev.league?.country||'' });
-    if (norm(ev.away_team||'').includes(term) && aid && !seen.has(aid))
+    if ((n=>n.includes(term)||n.split(/\s+/).some(w=>w.startsWith(term)))(norm(ev.away_team||'')) && aid && !seen.has(aid))
       seen.set(aid, { id: aid, name: ev.away_team, country: ev.league?.country||'' });
   });
   return Array.from(seen.values()).slice(0,15);
@@ -794,9 +794,9 @@ app.get('/api/teams', async (req, res) => {
       // BSD v2: ID real pode estar em home_team_obj.id quando home_team_id é null
       const hid = ev.home_team_id || ev.home_team_obj?.id;
       const aid = ev.away_team_id || ev.away_team_obj?.id;
-      if (norm(ev.home_team||'').includes(term) && hid && !seen.has(hid))
+      if ((n=>n.includes(term)||n.split(/\s+/).some(w=>w.startsWith(term)))(norm(ev.home_team||'')) && hid && !seen.has(hid))
         seen.set(hid, { id: hid, name: ev.home_team, country: ev.league?.country || ev.home_team_obj?.country || '' });
-      if (norm(ev.away_team||'').includes(term) && aid && !seen.has(aid))
+      if ((n=>n.includes(term)||n.split(/\s+/).some(w=>w.startsWith(term)))(norm(ev.away_team||'')) && aid && !seen.has(aid))
         seen.set(aid, { id: aid, name: ev.away_team, country: ev.league?.country || ev.away_team_obj?.country || '' });
     });
 
