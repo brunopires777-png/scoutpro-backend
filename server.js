@@ -752,6 +752,28 @@ app.get('/api/polymarket', async (req, res) => {
 
 // Busca times via eventos — BSD não tem times brasileiros em /api/teams/
 // Busca em eventos recentes + standings + seasons
+// Função reutilizável de busca de time — usada por /api/teams e /api/jogadores
+async function buscarTimePorNome(q) {
+  const norm = s => (s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+  const term = norm(q);
+  const seen = new Map();
+  const dateFrom = new Date(Date.now()-60*86400000).toISOString().slice(0,10);
+  const dateTo   = new Date(Date.now()+14*86400000).toISOString().slice(0,10);
+  const evData = await fetch(
+    `https://sports.bzzoiro.com/api/events/?date_from=${dateFrom}&date_to=${dateTo}&limit=200`,
+    { headers: { Authorization: `Token ${BSD_TOKEN}` } }
+  ).then(r => r.json());
+  (evData.results || []).forEach(ev => {
+    const hid = ev.home_team_id || ev.home_team_obj?.id;
+    const aid = ev.away_team_id || ev.away_team_obj?.id;
+    if (norm(ev.home_team||'').includes(term) && hid && !seen.has(hid))
+      seen.set(hid, { id: hid, name: ev.home_team, country: ev.league?.country||'' });
+    if (norm(ev.away_team||'').includes(term) && aid && !seen.has(aid))
+      seen.set(aid, { id: aid, name: ev.away_team, country: ev.league?.country||'' });
+  });
+  return Array.from(seen.values()).slice(0,15);
+}
+
 app.get('/api/teams', async (req, res) => {
   try {
     const { q } = req.query;
@@ -1293,26 +1315,14 @@ app.get('/api/jogadores', async (req, res) => {
 
     // ── CAMINHO A: busca por nome + time
     if (teamQuery) {
-      console.log(`[jogadores] CAMINHO A iniciado teamQuery="${teamQuery}"`);
-      const tq    = norm(teamQuery);
-      const nameF = norm(name || '');
+      console.log(`[jogadores] CAMINHO A: buscando time "${teamQuery}"`);
       let teamId2 = null, teamName2 = null;
-
-      // Reutiliza o cache de times da busca de elenco (buscarTime)
-      // que já funciona perfeitamente — extrai do mesmo endpoint de standings
       try {
-        // Busca o time via /api/teams?q= (nossa própria rota que já funciona)
-        const tRes = await fetch(
-          `http://localhost:${process.env.PORT||10000}/api/teams?q=${encodeURIComponent(teamQuery)}`,
-          { headers: { 'Accept': 'application/json' } }
-        );
-        const tData = await tRes.json();
-        console.log(`[jogadores] /api/teams retornou: ${JSON.stringify(tData).slice(0,200)}`);
-        const found = (tData.teams||tData.results||[]).find(t =>
-          norm(t.name||'').includes(tq) || tq.includes(norm(t.name||'').split(' ')[0])
-        );
-        if (found) { teamId2 = found.id; teamName2 = found.name; }
-      } catch(e) { console.log(`[jogadores] ERRO /api/teams: ${e.message}`); }
+        // Usa a mesma função que /api/teams já usa — sem HTTP interno
+        const times = await buscarTimePorNome(teamQuery);
+        console.log(`[jogadores] times encontrados: ${JSON.stringify(times.map(t=>({id:t.id,name:t.name})))}`);
+        if (times.length > 0) { teamId2 = times[0].id; teamName2 = times[0].name; }
+      } catch(e) { console.log(`[jogadores] ERRO buscarTimePorNome: ${e.message}`); }
 
       console.log(`[jogadores] time: "${teamName2}" id=${teamId2}`);
 
@@ -1325,10 +1335,11 @@ app.get('/api/jogadores', async (req, res) => {
           );
           const sq   = await sqRes.json();
           const list = sq.players || sq.squad || sq.results || [];
+          const nameF = norm(name || '');
           const filtered = nameF
             ? list.filter(p => norm(p.name||p.display_name||'').includes(nameF))
             : list;
-          console.log(`[jogadores] squad "${teamName2}": ${list.length} → ${filtered.length} match "${nameF}"`);
+          console.log(`[jogadores] squad "${teamName2}": ${list.length} total → ${filtered.length} match "${nameF}"`);
           if (filtered.length === 0 && nameF) {
             const sample = list.slice(0,15).map(p=>p.name||'?').join(' | ');
             console.log(`[jogadores] nomes squad: ${sample}`);
