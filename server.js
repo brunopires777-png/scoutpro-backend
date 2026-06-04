@@ -1311,20 +1311,15 @@ app.get('/api/jogadores', async (req, res) => {
     };
 
     const teamQuery = (team_name || '').trim();
-    console.log(`[jogadores] recebido: name="${name}" team_name="${team_name}" teamQuery="${teamQuery}"`);
 
     // ── CAMINHO A: busca por nome + time
     if (teamQuery) {
-      console.log(`[jogadores] CAMINHO A: buscando time "${teamQuery}"`);
       let teamId2 = null, teamName2 = null;
       try {
         // Usa a mesma função que /api/teams já usa — sem HTTP interno
         const times = await buscarTimePorNome(teamQuery);
-        console.log(`[jogadores] times encontrados: ${JSON.stringify(times.map(t=>({id:t.id,name:t.name})))}`);
         if (times.length > 0) { teamId2 = times[0].id; teamName2 = times[0].name; }
       } catch(e) { console.log(`[jogadores] ERRO buscarTimePorNome: ${e.message}`); }
-
-      console.log(`[jogadores] time: "${teamName2}" id=${teamId2}`);
 
       if (teamId2) {
         const teamObj = { id: teamId2, name: teamName2 };
@@ -1343,7 +1338,6 @@ app.get('/api/jogadores', async (req, res) => {
           console.log(`[jogadores] squad "${teamName2}": ${list.length} total → ${filtered.length} match "${nameF}"`);
           if (filtered.length === 0 && nameF) {
             const sample = list.slice(0,15).map(p=>p.name||'?').join(' | ');
-            console.log(`[jogadores] nomes squad: ${sample}`);
           }
           addPlayers(filtered, teamObj);
         } catch(e) { console.log(`[jogadores] ERRO squad: ${e.message}`); }
