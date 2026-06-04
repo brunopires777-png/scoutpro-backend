@@ -1293,30 +1293,28 @@ app.get('/api/jogadores', async (req, res) => {
 
     // ── CAMINHO A: busca por nome + time
     if (teamQuery) {
+      console.log(`[jogadores] CAMINHO A iniciado teamQuery="${teamQuery}"`);
       const tq    = norm(teamQuery);
       const nameF = norm(name || '');
       let teamId2 = null, teamName2 = null;
 
-      // Usa fetch direto (mais confiável que bsd() que pode ter timeout diferente)
+      // Reutiliza o cache de times da busca de elenco (buscarTime)
+      // que já funciona perfeitamente — extrai do mesmo endpoint de standings
       try {
-        const df2 = new Date(Date.now()-14*86400000).toISOString().slice(0,10);
-        const dt2 = new Date(Date.now()+7*86400000).toISOString().slice(0,10);
-        const url = `https://sports.bzzoiro.com/api/v2/events/?date_from=${df2}&date_to=${dt2}&limit=200`;
-        console.log(`[jogadores] buscando eventos: ${url.slice(0,80)}`);
-        const evRes = await fetch(url, { headers: { Authorization: `Token ${BSD_TOKEN}` } });
-        const evData = await evRes.json();
-        console.log(`[jogadores] eventos retornados: ${(evData.results||[]).length}`);
-        for (const ev of (evData.results||[])) {
-          const hid = ev.home_team_id || ev.home_team_obj?.id;
-          const aid = ev.away_team_id || ev.away_team_obj?.id;
-          const hn  = norm(ev.home_team||'');
-          const an  = norm(ev.away_team||'');
-          if (hn.includes(tq) && hid) { teamId2 = hid; teamName2 = ev.home_team; break; }
-          if (an.includes(tq) && aid) { teamId2 = aid; teamName2 = ev.away_team; break; }
-        }
-      } catch(e) { console.log(`[jogadores] ERRO eventos: ${e.message}`); }
+        // Busca o time via /api/teams?q= (nossa própria rota que já funciona)
+        const tRes = await fetch(
+          `http://localhost:${process.env.PORT||10000}/api/teams?q=${encodeURIComponent(teamQuery)}`,
+          { headers: { 'Accept': 'application/json' } }
+        );
+        const tData = await tRes.json();
+        console.log(`[jogadores] /api/teams retornou: ${JSON.stringify(tData).slice(0,200)}`);
+        const found = (tData.teams||tData.results||[]).find(t =>
+          norm(t.name||'').includes(tq) || tq.includes(norm(t.name||'').split(' ')[0])
+        );
+        if (found) { teamId2 = found.id; teamName2 = found.name; }
+      } catch(e) { console.log(`[jogadores] ERRO /api/teams: ${e.message}`); }
 
-      console.log(`[jogadores] time encontrado: "${teamName2}" id=${teamId2}`);
+      console.log(`[jogadores] time: "${teamName2}" id=${teamId2}`);
 
       if (teamId2) {
         const teamObj = { id: teamId2, name: teamName2 };
