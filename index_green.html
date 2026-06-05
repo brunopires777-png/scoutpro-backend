@@ -1422,24 +1422,137 @@ function renderMatchCard(j){
     </div>
     ${pills}
     <div style="font-size:10px;padding:2px 8px 6px;text-align:right">
-      ${(()=>{const rn=typeof j.referee==='string'?j.referee:(j.referee?.name||j.referee?.full_name||'');return rn?`<span style="color:#888;cursor:pointer" onclick="buscarArbitroDoJogo('${rn.replace(/'/g,'"')}',event)">🟨 ${rn}</span>`:`<span style="color:#444;font-style:italic">Árbitro não informado</span>`;})()}
+      ${(()=>{
+        const rid = j.referee_id || null;
+        const rn  = j.referee_name || (typeof j.referee==='string'?j.referee:(j.referee?.name||j.referee?.full_name||''));
+        if(!rn) return `<span style="color:#444;font-style:italic">Árbitro não informado</span>`;
+        return `<span style="color:var(--green);cursor:pointer;font-weight:600;border-bottom:1px dashed rgba(57,255,20,.4);padding-bottom:1px" onclick="abrirModalArbitroDoJogo(${rid||'null'},'${rn.replace(/'/g,"\\'").replace(/"/g,'&quot;')}',event)">🟨 ${rn}</span>`;
+      })()}
     </div>
   </div>`;
 }
 
-function buscarArbitroDoJogo(nome, ev){
+async function abrirModalArbitroDoJogo(id, nome, ev){
   if(ev) ev.stopPropagation();
-  // Vai para aba árbitros e filtra pelo nome
-  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
-  document.querySelectorAll('.nav-tabs .tab').forEach(t=>t.classList.remove('active'));
-  document.getElementById('page-arbitros').classList.add('active');
-  // Ativa a aba árbitros
-  const arbTab = [...document.querySelectorAll('.nav-tabs .tab')].find(t=>t.textContent.includes('rbitro'));
-  if(arbTab) arbTab.classList.add('active');
-  // Filtra pelo nome
-  const inp = document.getElementById('inp-arbitro');
-  if(inp){ inp.value = nome; filtroArbitroInput(); }
-  setTimeout(()=>document.getElementById('page-arbitros').scrollIntoView({behavior:'smooth'}),100);
+  // Cria/reutiliza overlay do árbitro
+  let ov = document.getElementById('arb-jogo-overlay');
+  if(!ov){
+    ov = document.createElement('div');
+    ov.id = 'arb-jogo-overlay';
+    ov.style.cssText='position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.85);overflow-y:auto;display:flex;flex-direction:column;align-items:center;padding:16px 12px 40px';
+    ov.addEventListener('click', e=>{ if(e.target===ov) fecharModalArbitroJogo(); });
+    document.body.appendChild(ov);
+  }
+  ov.innerHTML=`
+    <div style="width:100%;max-width:520px;position:relative">
+      <button onclick="fecharModalArbitroJogo()" style="position:absolute;top:-4px;right:0;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.15);color:#fff;border-radius:50%;width:32px;height:32px;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;z-index:1">✕</button>
+      <div id="arb-jogo-conteudo" style="margin-top:8px">
+        <div class="loading"><div class="spinner-wrap"><div class="spinner"></div></div><p>Carregando ${nome}...</p></div>
+      </div>
+    </div>`;
+  ov.style.display='flex';
+  document.body.style.overflow='hidden';
+
+  const area = document.getElementById('arb-jogo-conteudo');
+  try {
+    let arbId = id;
+    // Se não temos ID, busca pelo nome
+    if(!arbId){
+      const r = await fetch(`${API}/api/arbitros/buscar?name=${encodeURIComponent(nome)}`);
+      const d = await r.json();
+      arbId = (d.results||[])[0]?.id || null;
+    }
+    if(!arbId){
+      area.innerHTML=`<div class="card"><p style="color:#aaa;text-align:center;padding:20px">Árbitro <strong>${nome}</strong> não encontrado na base de dados.</p></div>`;
+      return;
+    }
+    const r = await fetch(`${API}/api/arbitros/${arbId}/stats`);
+    const d = await r.json();
+    const avg=d.averages||{};
+    const jogos=d.jogos||[];
+    const avgY=Number(avg.yellow_per_game||0).toFixed(2);
+    const avgR=Number(avg.red_per_game||0).toFixed(2);
+    const avgF=Number(avg.fouls_per_game||0).toFixed(1);
+    const totY=avg.total_yellow||null;
+    const totR=avg.total_red||null;
+    const cnt=avg.games_analyzed||jogos.length||0;
+    const alertColor=avgY>=4?'var(--red)':avgY>=3?'var(--gold)':'var(--green)';
+    area.innerHTML=`<div class="card fadein">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;padding-bottom:14px;border-bottom:1px solid rgba(50,50,50,.5)">
+        <div style="font-size:32px">👔</div>
+        <div>
+          <div style="font-family:'Bebas Neue',sans-serif;font-size:20px;letter-spacing:.04em">${nome}</div>
+          <div style="font-size:12px;color:#999;margin-top:2px">${cnt} jogos analisados</div>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:16px">
+        <div style="background:rgba(255,215,64,.08);border:1px solid rgba(255,215,64,.2);border-radius:12px;padding:12px;text-align:center">
+          <div style="font-family:'Bebas Neue',sans-serif;font-size:28px;color:${alertColor}">${avgY}</div>
+          <div style="font-size:9px;color:#888;font-weight:700;letter-spacing:.08em;margin-top:2px">🟨 / JOGO</div>
+          ${totY!==null?`<div style="font-size:9px;color:#555;margin-top:3px">${totY} total</div>`:''}
+        </div>
+        <div style="background:rgba(255,23,68,.08);border:1px solid rgba(255,23,68,.2);border-radius:12px;padding:12px;text-align:center">
+          <div style="font-family:'Bebas Neue',sans-serif;font-size:28px;color:var(--red)">${avgR}</div>
+          <div style="font-size:9px;color:#888;font-weight:700;letter-spacing:.08em;margin-top:2px">🟥 / JOGO</div>
+          ${totR!==null?`<div style="font-size:9px;color:#555;margin-top:3px">${totR} total</div>`:''}
+        </div>
+        <div style="background:rgba(255,145,0,.08);border:1px solid rgba(255,145,0,.2);border-radius:12px;padding:12px;text-align:center">
+          <div style="font-family:'Bebas Neue',sans-serif;font-size:28px;color:var(--orange)">${avgF}</div>
+          <div style="font-size:9px;color:#888;font-weight:700;letter-spacing:.08em;margin-top:2px">⚡ FALTAS/JG</div>
+        </div>
+      </div>
+      ${avgY>=4?`<div style="background:rgba(255,23,68,.1);border:1px solid rgba(255,23,68,.3);border-radius:10px;padding:10px 14px;font-size:12px;color:var(--red);margin-bottom:12px">⚠️ Árbitro com histórico de <strong>muitos cartões</strong> — considere Over Cartões</div>`:''}
+      ${Number(avg.penalties_per_game||0)>=0.4?`<div style="background:rgba(255,145,0,.1);border:1px solid rgba(255,145,0,.3);border-radius:10px;padding:10px 14px;font-size:12px;color:var(--orange);margin-bottom:12px">⚠️ Árbitro que costuma marcar pênaltis — média ${Number(avg.penalties_per_game||0).toFixed(1)}/jogo</div>`:''}
+      ${(d.proximos_jogos||[]).length?`
+      <div class="slabel" style="margin-bottom:8px;margin-top:4px">PRÓXIMOS JOGOS</div>
+      <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:16px">
+        ${(d.proximos_jogos||[]).map(j=>{
+          const dt=j.event_date?new Date(j.event_date):null;
+          const fmt=dt?dt.toLocaleDateString('pt-BR',{weekday:'short',day:'2-digit',month:'2-digit',timeZone:'America/Sao_Paulo'})+' '+dt.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit',timeZone:'America/Sao_Paulo'}):'';
+          return `<div style="background:rgba(57,255,20,.07);border:1px solid rgba(57,255,20,.2);border-radius:10px;padding:10px 14px;cursor:pointer" onclick="fecharModalArbitroJogo();abrirJogo(${j.id})">
+            <div style="font-size:14px;font-weight:700;color:#eee">${j.home_team} × ${j.away_team}</div>
+            <div style="display:flex;gap:10px;margin-top:4px;flex-wrap:wrap">
+              ${fmt?`<span style="font-size:11px;color:var(--green)">📅 ${fmt}</span>`:''}
+              <span style="font-size:11px;color:#666">${j.league_name}</span>
+            </div>
+          </div>`;
+        }).join('')}
+      </div>`:''}
+      <div class="slabel" style="margin-bottom:8px">ÚLTIMOS ${Math.min(jogos.length,10)} JOGOS</div>
+      ${jogos.slice(0,10).map(j=>{
+        const ev2=j.event||j;
+        const ht=ev2.home_team||j.home_team||'—';
+        const at=ev2.away_team||j.away_team||'—';
+        const edate=ev2.event_date||j.event_date||null;
+        const d2=edate?new Date(edate):null;
+        const dfmt=d2?d2.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',timeZone:'America/Sao_Paulo'}):'';
+        const y=ev2.yellow_cards??j.yellow_cards??null;
+        const r2=ev2.red_cards??j.red_cards??null;
+        return `<div style="display:flex;align-items:center;justify-content:space-between;padding:7px 0;border-bottom:1px solid rgba(255,255,255,.04)">
+          <span style="font-size:12px;color:#ccc">${ht} × ${at}</span>
+          <div style="display:flex;align-items:center;gap:6px;flex-shrink:0">
+            <span style="font-size:11px;color:#555">${dfmt}</span>
+            ${y!==null?`<span style="background:rgba(255,215,64,.15);border:1px solid rgba(255,215,64,.3);border-radius:5px;padding:1px 5px;font-size:11px;font-weight:700;color:var(--gold)">🟨${y}</span>`:''}
+            ${r2!==null?`<span style="background:rgba(255,23,68,.15);border:1px solid rgba(255,23,68,.3);border-radius:5px;padding:1px 5px;font-size:11px;font-weight:700;color:var(--red)">🟥${r2}</span>`:''}
+          </div>
+        </div>`;
+      }).join('')}
+    </div>`;
+  } catch(e){
+    area.innerHTML=`<div class="card"><p style="color:var(--red)">❌ ${e.message}</p></div>`;
+  }
+}
+
+function fecharModalArbitroJogo(){
+  const ov = document.getElementById('arb-jogo-overlay');
+  if(ov){ ov.style.display='none'; ov.innerHTML=''; }
+  document.body.style.overflow='';
+}
+
+function buscarArbitroDoJogo(nome, ev){
+  // mantida para compatibilidade, redireciona para modal
+  if(ev) ev.stopPropagation();
+  abrirModalArbitroDoJogo(null, nome, null);
 }
 
 function filtroJogo(p,btn){
@@ -2611,12 +2724,15 @@ async function verStatsArbitro(id, nome){
     const cnt=avg.games_analyzed||jogos.length||0;
     const alertColor=avgY>=4?'var(--red)':avgY>=3?'var(--gold)':'var(--green)';
     area.innerHTML=`<div class="card fadein">
-      <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;padding-bottom:14px;border-bottom:1px solid rgba(50,50,50,.5)">
-        <div style="font-size:32px">👔</div>
-        <div>
-          <div style="font-family:'Bebas Neue',sans-serif;font-size:20px;letter-spacing:.04em">${nome}</div>
-          <div style="font-size:12px;color:#999;margin-top:2px">${cnt} jogos analisados</div>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;padding-bottom:14px;border-bottom:1px solid rgba(50,50,50,.5)">
+        <div style="display:flex;align-items:center;gap:12px">
+          <div style="font-size:32px">👔</div>
+          <div>
+            <div style="font-family:'Bebas Neue',sans-serif;font-size:20px;letter-spacing:.04em">${nome}</div>
+            <div style="font-size:12px;color:#999;margin-top:2px">${cnt} jogos analisados</div>
+          </div>
         </div>
+        <button onclick="document.getElementById('arbitro-proximos-area').scrollIntoView({behavior:'smooth',block:'start'})" style="background:rgba(57,255,20,.08);border:1px solid rgba(57,255,20,.25);color:var(--green);border-radius:8px;padding:6px 10px;font-size:11px;cursor:pointer;white-space:nowrap">▲ Voltar</button>
       </div>
       <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:16px">
         <div style="background:rgba(255,215,64,.08);border:1px solid rgba(255,215,64,.2);border-radius:12px;padding:12px;text-align:center">
