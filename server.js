@@ -177,7 +177,7 @@ app.get('/api/debug/teamid', async (req, res) => {
   const q = req.query.q || '';
   try {
     const r = await fetch(
-      `https://sports.bzzoiro.com/api/teams/?search=${encodeURIComponent(q)}&limit=10`,
+      `https://sports.bzzoiro.com/api/v2/teams/?name=${encodeURIComponent(q)}&limit=10`,
       { headers: { Authorization: `Token ${BSD_TOKEN}` } }
     ).then(r => r.json());
     res.json({
@@ -751,7 +751,7 @@ app.get('/api/polymarket', async (req, res) => {
 // ─────────────────────────────────────────────
 
 // Função reutilizável de busca de time — usada por /api/teams e /api/jogadores
-// Fontes: 1) API nativa /api/teams/?search= (mais abrangente), 2) eventos recentes, 3) standings
+// Fontes: 1) API v2 /api/v2/teams/?name= (busca parcial nativa), 2) eventos recentes, 3) standings
 async function buscarTimePorNome(q) {
   const norm = s => (s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
   const term = norm(q);
@@ -760,7 +760,7 @@ async function buscarTimePorNome(q) {
   // 1ª fonte: API de times da BSD com busca nativa (mais abrangente)
   try {
     const apiTeams = await fetch(
-      `https://sports.bzzoiro.com/api/teams/?search=${encodeURIComponent(q)}&limit=20`,
+      `https://sports.bzzoiro.com/api/v2/teams/?name=${encodeURIComponent(q)}&limit=20`,
       { headers: { Authorization: `Token ${BSD_TOKEN}` } }
     ).then(r => r.json());
     (apiTeams.results || []).forEach(t => {
@@ -803,7 +803,7 @@ app.get('/api/teams', async (req, res) => {
     // 1ª fonte: API de times da BSD com busca nativa (mais abrangente)
     try {
       const apiTeams = await fetch(
-        `https://sports.bzzoiro.com/api/teams/?search=${encodeURIComponent(q)}&limit=20`,
+        `https://sports.bzzoiro.com/api/v2/teams/?name=${encodeURIComponent(q)}&limit=20`,
         { headers: { Authorization: `Token ${BSD_TOKEN}` } }
       ).then(r => r.json());
       (apiTeams.results || []).forEach(t => {
