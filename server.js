@@ -750,27 +750,45 @@ app.get('/api/polymarket', async (req, res) => {
 // ROTAS DE COMPATIBILIDADE (frontend original)
 // ─────────────────────────────────────────────
 
-// Busca times via eventos — BSD não tem times brasileiros em /api/teams/
-// Busca em eventos recentes + standings + seasons
 // Função reutilizável de busca de time — usada por /api/teams e /api/jogadores
+// Fontes: 1) API nativa /api/teams/?search= (mais abrangente), 2) eventos recentes, 3) standings
 async function buscarTimePorNome(q) {
   const norm = s => (s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
   const term = norm(q);
   const seen = new Map();
-  const dateFrom = new Date(Date.now()-60*86400000).toISOString().slice(0,10);
-  const dateTo   = new Date(Date.now()+14*86400000).toISOString().slice(0,10);
-  const evData = await fetch(
-    `https://sports.bzzoiro.com/api/events/?date_from=${dateFrom}&date_to=${dateTo}&limit=200`,
-    { headers: { Authorization: `Token ${BSD_TOKEN}` } }
-  ).then(r => r.json());
-  (evData.results || []).forEach(ev => {
-    const hid = ev.home_team_id || ev.home_team_obj?.id;
-    const aid = ev.away_team_id || ev.away_team_obj?.id;
-    if ((n=>n.includes(term)||n.split(/\s+/).some(w=>w.startsWith(term)))(norm(ev.home_team||'')) && hid && !seen.has(hid))
-      seen.set(hid, { id: hid, name: ev.home_team, country: ev.league?.country||'' });
-    if ((n=>n.includes(term)||n.split(/\s+/).some(w=>w.startsWith(term)))(norm(ev.away_team||'')) && aid && !seen.has(aid))
-      seen.set(aid, { id: aid, name: ev.away_team, country: ev.league?.country||'' });
-  });
+
+  // 1ª fonte: API de times da BSD com busca nativa (mais abrangente)
+  try {
+    const apiTeams = await fetch(
+      `https://sports.bzzoiro.com/api/teams/?search=${encodeURIComponent(q)}&limit=20`,
+      { headers: { Authorization: `Token ${BSD_TOKEN}` } }
+    ).then(r => r.json());
+    (apiTeams.results || []).forEach(t => {
+      if (t.id && !seen.has(t.id))
+        seen.set(t.id, { id: t.id, name: t.name, country: t.country || '' });
+    });
+  } catch(_) {}
+
+  // 2ª fonte: eventos recentes (complementa com times que tenham jogos)
+  if (seen.size < 3) {
+    try {
+      const dateFrom = new Date(Date.now()-60*86400000).toISOString().slice(0,10);
+      const dateTo   = new Date(Date.now()+14*86400000).toISOString().slice(0,10);
+      const evData = await fetch(
+        `https://sports.bzzoiro.com/api/events/?date_from=${dateFrom}&date_to=${dateTo}&limit=300`,
+        { headers: { Authorization: `Token ${BSD_TOKEN}` } }
+      ).then(r => r.json());
+      (evData.results || []).forEach(ev => {
+        const hid = ev.home_team_id || ev.home_team_obj?.id;
+        const aid = ev.away_team_id || ev.away_team_obj?.id;
+        if ((n=>n.includes(term)||n.split(/\s+/).some(w=>w.startsWith(term)))(norm(ev.home_team||'')) && hid && !seen.has(hid))
+          seen.set(hid, { id: hid, name: ev.home_team, country: ev.league?.country||'' });
+        if ((n=>n.includes(term)||n.split(/\s+/).some(w=>w.startsWith(term)))(norm(ev.away_team||'')) && aid && !seen.has(aid))
+          seen.set(aid, { id: aid, name: ev.away_team, country: ev.league?.country||'' });
+      });
+    } catch(_) {}
+  }
+
   return Array.from(seen.values()).slice(0,15);
 }
 
@@ -782,25 +800,37 @@ app.get('/api/teams', async (req, res) => {
     const term = norm(q);
     const seen = new Map();
 
-    // Busca em eventos dos últimos 60 dias + próximos 14
-    const dateFrom = new Date(Date.now()-60*86400000).toISOString().slice(0,10);
-    const dateTo   = new Date(Date.now()+14*86400000).toISOString().slice(0,10);
-    const evData = await fetch(
-      `https://sports.bzzoiro.com/api/events/?date_from=${dateFrom}&date_to=${dateTo}&limit=200`,
-      { headers: { Authorization: `Token ${BSD_TOKEN}` } }
-    ).then(r => r.json());
+    // 1ª fonte: API de times da BSD com busca nativa (mais abrangente)
+    try {
+      const apiTeams = await fetch(
+        `https://sports.bzzoiro.com/api/teams/?search=${encodeURIComponent(q)}&limit=20`,
+        { headers: { Authorization: `Token ${BSD_TOKEN}` } }
+      ).then(r => r.json());
+      (apiTeams.results || []).forEach(t => {
+        if (t.id && !seen.has(t.id))
+          seen.set(t.id, { id: t.id, name: t.name, country: t.country || '' });
+      });
+    } catch(_) {}
 
-    (evData.results || []).forEach(ev => {
-      // BSD v2: ID real pode estar em home_team_obj.id quando home_team_id é null
-      const hid = ev.home_team_id || ev.home_team_obj?.id;
-      const aid = ev.away_team_id || ev.away_team_obj?.id;
-      if ((n=>n.includes(term)||n.split(/\s+/).some(w=>w.startsWith(term)))(norm(ev.home_team||'')) && hid && !seen.has(hid))
-        seen.set(hid, { id: hid, name: ev.home_team, country: ev.league?.country || ev.home_team_obj?.country || '' });
-      if ((n=>n.includes(term)||n.split(/\s+/).some(w=>w.startsWith(term)))(norm(ev.away_team||'')) && aid && !seen.has(aid))
-        seen.set(aid, { id: aid, name: ev.away_team, country: ev.league?.country || ev.away_team_obj?.country || '' });
-    });
+    // 2ª fonte: eventos recentes (complementa com times que tenham jogos)
+    if (seen.size < 3) {
+      const dateFrom = new Date(Date.now()-60*86400000).toISOString().slice(0,10);
+      const dateTo   = new Date(Date.now()+14*86400000).toISOString().slice(0,10);
+      const evData = await fetch(
+        `https://sports.bzzoiro.com/api/events/?date_from=${dateFrom}&date_to=${dateTo}&limit=300`,
+        { headers: { Authorization: `Token ${BSD_TOKEN}` } }
+      ).then(r => r.json());
+      (evData.results || []).forEach(ev => {
+        const hid = ev.home_team_id || ev.home_team_obj?.id;
+        const aid = ev.away_team_id || ev.away_team_obj?.id;
+        if ((n=>n.includes(term)||n.split(/\s+/).some(w=>w.startsWith(term)))(norm(ev.home_team||'')) && hid && !seen.has(hid))
+          seen.set(hid, { id: hid, name: ev.home_team, country: ev.league?.country || ev.home_team_obj?.country || '' });
+        if ((n=>n.includes(term)||n.split(/\s+/).some(w=>w.startsWith(term)))(norm(ev.away_team||'')) && aid && !seen.has(aid))
+          seen.set(aid, { id: aid, name: ev.away_team, country: ev.league?.country || ev.away_team_obj?.country || '' });
+      });
+    }
 
-    // Se não achou, busca em todas as standings de todas as ligas
+    // 3ª fonte: standings (fallback se ainda sem resultado)
     if (seen.size === 0) {
       const ligasData = await fetch('https://sports.bzzoiro.com/api/leagues/', {
         headers: { Authorization: `Token ${BSD_TOKEN}` }
