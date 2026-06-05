@@ -430,6 +430,9 @@ function normEvento(ev) {
     odds_home:    ev.odds_home,
     odds_draw:    ev.odds_draw,
     odds_away:    ev.odds_away,
+    // Árbitro
+    referee_id:   ev.referee_id   || ev.referee?.id   || null,
+    referee_name: ev.referee_name || ev.referee?.name || ev.referee?.full_name || (typeof ev.referee === 'string' ? ev.referee : null) || null,
   };
 }
 
