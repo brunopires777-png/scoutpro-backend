@@ -1812,7 +1812,7 @@ app.get('/api/treinadores/:id', async (req, res) => {
 // ─────────────────────────────────────────────
 app.get('/api/arbitros', async (req, res) => {
   try {
-    const { league_id, name, limit = 50 } = req.query;
+    const { league_id, name, limit = 200 } = req.query;
     const data = await bsd('/referees/', { league_id, name, limit });
     res.json(data);
   } catch (e) {
