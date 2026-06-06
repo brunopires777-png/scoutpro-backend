@@ -541,6 +541,56 @@ app.get('/api/debug/arbitros', async (req, res) => {
   res.json(result);
 });
 
+// ─────────────────────────────────────────────
+// CACHE DE NOMES DE ÁRBITROS
+// A BSD retorna referee_id nos eventos mas não o nome.
+// Este cache busca /referees/{id}/ uma vez por ID e guarda por 24h.
+// ─────────────────────────────────────────────
+const _refCache = new Map(); // id -> { name, ts }
+const _REF_TTL  = 24 * 60 * 60 * 1000; // 24h
+
+async function resolverNomeArbitro(id) {
+  if (!id) return null;
+  const cached = _refCache.get(id);
+  if (cached && Date.now() - cached.ts < _REF_TTL) return cached.name;
+  try {
+    const d = await bsd(`/referees/${id}/`);
+    const name = d.name || d.full_name || d.display_name || null;
+    _refCache.set(id, { name, ts: Date.now() });
+    return name;
+  } catch(_) { return null; }
+}
+
+// Enriquece lista de eventos: resolve nomes de árbitros sem nome em paralelo
+async function enriquecerArbitros(eventos) {
+  // Coleta IDs que precisam de nome
+  const ids = [...new Set(
+    eventos
+      .map(ev => ev.referee_id)
+      .filter(id => id && !ev_temNome(eventos, id))
+  )];
+  if (!ids.length) return eventos;
+  // Busca em paralelo (máx 20 por vez para não sobrecarregar)
+  const chunks = [];
+  for (let i = 0; i < ids.length; i += 20) chunks.push(ids.slice(i, i+20));
+  for (const chunk of chunks) {
+    await Promise.allSettled(chunk.map(id => resolverNomeArbitro(id)));
+  }
+  // Aplica nomes resolvidos
+  return eventos.map(ev => {
+    if (ev.referee_id && !ev.referee_name) {
+      const cached = _refCache.get(ev.referee_id);
+      if (cached?.name) return { ...ev, referee_name: cached.name };
+    }
+    return ev;
+  });
+}
+
+function ev_temNome(eventos, id) {
+  const ev = eventos.find(e => e.referee_id === id);
+  return !!(ev?.referee_name);
+}
+
 // que o frontend espera (garante home_team_id etc.)
 // ─────────────────────────────────────────────
 function normEvento(ev) {
@@ -579,7 +629,7 @@ app.get('/api/jogos/hoje', async (req, res) => {
     const t = date || today();
     const url = `https://sports.bzzoiro.com/api/events/?date_from=${t}&date_to=${t}&tz=America/Sao_Paulo&limit=200${league_id ? `&league=${league_id}` : ''}`;
     const data = await fetch(url, { headers: { Authorization: `Token ${BSD_TOKEN}` } }).then(r => r.json());
-    data.results = (data.results || []).map(normEvento);
+    data.results = await enriquecerArbitros((data.results || []).map(normEvento));
     res.json(data);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -590,7 +640,7 @@ app.get('/api/jogos/amanha', async (req, res) => {
     const t = dayOffset(1);
     const url = `https://sports.bzzoiro.com/api/events/?date_from=${t}&date_to=${t}&tz=America/Sao_Paulo&limit=200${league_id ? `&league=${league_id}` : ''}`;
     const data = await fetch(url, { headers: { Authorization: `Token ${BSD_TOKEN}` } }).then(r => r.json());
-    data.results = (data.results || []).map(normEvento);
+    data.results = await enriquecerArbitros((data.results || []).map(normEvento));
     res.json(data);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -600,7 +650,7 @@ app.get('/api/jogos/semana', async (req, res) => {
     const { league_id } = req.query;
     const url = `https://sports.bzzoiro.com/api/events/?date_from=${today()}&date_to=${dayOffset(7)}&tz=America/Sao_Paulo&limit=200${league_id ? `&league=${league_id}` : ''}`;
     const data = await fetch(url, { headers: { Authorization: `Token ${BSD_TOKEN}` } }).then(r => r.json());
-    data.results = (data.results || []).map(normEvento);
+    data.results = await enriquecerArbitros((data.results || []).map(normEvento));
     res.json(data);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -610,9 +660,8 @@ app.get('/api/jogos/ao-vivo', async (req, res) => {
     const { league_id } = req.query;
     const url = `https://sports.bzzoiro.com/api/live/?tz=America/Sao_Paulo${league_id ? `&league=${league_id}` : ''}`;
     const data = await fetch(url, { headers: { Authorization: `Token ${BSD_TOKEN}` } }).then(r => r.json());
-    // /api/live/ retorna {events:[...]} ou {results:[...]}
     const lista = data.events || data.results || [];
-    const normalized = lista.map(normEvento);
+    const normalized = await enriquecerArbitros(lista.map(normEvento));
     res.json({ results: normalized, count: normalized.length });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
