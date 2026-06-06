@@ -606,9 +606,9 @@ function normEvento(ev) {
     league_name:  ev.league_name  || ev.league?.name || ev.group_name || '—',
     league_id:    ev.league_id    || ev.league?.id   || null,
     status:       ev.status       || (ev.is_live ? 'inprogress' : 'ns'),
-    // xG disponível diretamente no evento!
-    home_xg:      ev.home_xg      || ev.actual_home_xg || null,
-    away_xg:      ev.away_xg      || ev.actual_away_xg || null,
+    // xG disponível diretamente no evento — usa ?? para não perder valores 0
+    home_xg:      ev.home_xg_live  ?? ev.actual_home_xg ?? ev.home_xg  ?? null,
+    away_xg:      ev.away_xg_live  ?? ev.actual_away_xg ?? ev.away_xg  ?? null,
     // Odds já disponíveis na raiz
     odds_home:    ev.odds_home,
     odds_draw:    ev.odds_draw,
