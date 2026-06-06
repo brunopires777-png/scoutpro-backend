@@ -504,6 +504,43 @@ app.get('/api/debug/lineup/:teamId', async (req, res) => {
   res.json(result);
 });
 
+// ─────────────────────────────────────────────
+// DIAGNÓSTICO DE ÁRBITROS — GET /api/debug/arbitros
+// Retorna: total na BSD, escalados esta semana, lista dos escalados
+// ─────────────────────────────────────────────
+app.get('/api/debug/arbitros', async (req, res) => {
+  const result = { total_bsd: null, escalados_semana: 0, arbitros_escalados: [], sem_arbitro: 0, total_jogos_semana: 0 };
+  try {
+    // 1. Total de árbitros cadastrados na BSD
+    const totRef = await bsd('/referees/', { limit: 1 });
+    result.total_bsd = totRef.count || null;
+
+    // 2. Jogos desta semana (hoje + 7 dias)
+    const df = new Date().toISOString().slice(0,10);
+    const dt = new Date(Date.now()+7*86400000).toISOString().slice(0,10);
+    const evData = await bsd('/events/', { date_from: df, date_to: dt, limit: 200 });
+    const jogos = evData.results || [];
+    result.total_jogos_semana = jogos.length;
+
+    // 3. Extrai árbitros escalados
+    const arbMap = new Map();
+    for (const ev of jogos) {
+      const rid  = ev.referee_id  || ev.referee?.id   || null;
+      const nome = ev.referee_name|| ev.referee?.name || ev.referee?.full_name || (typeof ev.referee==='string'?ev.referee:null) || null;
+      if (nome || rid) {
+        const key = rid || nome;
+        if (!arbMap.has(key)) arbMap.set(key, { id: rid, name: nome, jogos: 0 });
+        arbMap.get(key).jogos++;
+      } else {
+        result.sem_arbitro++;
+      }
+    }
+    result.escalados_semana = arbMap.size;
+    result.arbitros_escalados = Array.from(arbMap.values()).sort((a,b)=>(a.name||'').localeCompare(b.name||''));
+  } catch(e) { result.error = e.message; }
+  res.json(result);
+});
+
 // que o frontend espera (garante home_team_id etc.)
 // ─────────────────────────────────────────────
 function normEvento(ev) {
