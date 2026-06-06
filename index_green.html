@@ -668,14 +668,32 @@ td.nd{color:#555;font-size:13px}
   <div class="page" id="page-arbitros">
     <div class="card">
       <div class="card-title" style="margin-bottom:0.75rem">🟥 Árbitros — Próximos Jogos</div>
-      <p style="font-size:12px;color:var(--text2);margin-bottom:1rem">Árbitros dos próximos 7 dias. Clique para ver histórico de cartões.</p>
-
+      <p style="font-size:12px;color:var(--text2);margin-bottom:1rem">Árbitros confirmados nos próximos 7 dias. Clique para ver histórico de cartões.</p>
       <div class="search-row" style="margin-bottom:12px">
         <input class="finput" id="inp-arb-nome" placeholder="🔍 Filtrar por nome do árbitro..." oninput="filtrarArbitrosPorNome(this.value)" autocomplete="off"/>
         <button class="btn btn-ghost btn-sm" onclick="limparFiltroArbitro()">✕</button>
       </div>
       <div id="arbitro-proximos-area"><div class="loading"><div class="spinner-wrap"><div class="spinner"></div><div class="spinner-pct" id="arb-load-pct">0%</div></div><p>Carregando árbitros...</p></div></div>
     </div>
+
+    <!-- Caixa árbitros não confirmados (expansível) -->
+    <div class="card" style="margin-top:12px">
+      <div onclick="toggleArbitrosNaoConfirmados()" style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;user-select:none">
+        <div>
+          <div class="card-title" style="margin-bottom:4px">👔 Árbitros Não Confirmados</div>
+          <p style="font-size:12px;color:var(--text2);margin:0">Lista geral de árbitros na base BSD. Clique para expandir.</p>
+        </div>
+        <span id="arb-nc-chevron" style="font-size:20px;color:var(--green);transition:transform .3s">›</span>
+      </div>
+      <div id="arb-nc-area" style="display:none;margin-top:14px">
+        <div class="search-row" style="margin-bottom:12px">
+          <input class="finput" id="inp-arb-nc" placeholder="🔍 Buscar árbitro..." oninput="filtrarArbitrosNC(this.value)" autocomplete="off"/>
+          <button class="btn btn-ghost btn-sm" onclick="limparFiltroNC()">✕</button>
+        </div>
+        <div id="arb-nc-lista"><div class="empty"><div class="empty-icon">👔</div><p>Clique em buscar para carregar</p></div></div>
+      </div>
+    </div>
+
     <div id="arbitro-area"></div>
   </div>
   <!-- COPA DO MUNDO 2026 -->
@@ -2422,11 +2440,11 @@ function _renderChaveamento() {
       const x1 = flip ? gapW : 0;
       const x2 = flip ? 0 : gapW;
       const xm = gapW/2;
-      lines += `<line x1="${x1}" y1="${y1}" x2="${xm}" y2="${y1}" stroke="rgba(57,255,20,.22)" stroke-width="1.5"/>`;
+      lines += `<line x1="${x1}" y1="${y1}" x2="${xm}" y2="${y1}" stroke="rgba(57,255,20,.45)" stroke-width="1.5"/>`;
       if (i%2===0) {
         const y1b = yC(rodada,i+1);
-        lines += `<line x1="${xm}" y1="${y1}" x2="${xm}" y2="${y1b}" stroke="rgba(57,255,20,.22)" stroke-width="1.5"/>`;
-        lines += `<line x1="${xm}" y1="${(y1+y1b)/2}" x2="${x2}" y2="${y2}" stroke="rgba(57,255,20,.22)" stroke-width="1.5"/>`;
+        lines += `<line x1="${xm}" y1="${y1}" x2="${xm}" y2="${y1b}" stroke="rgba(57,255,20,.45)" stroke-width="1.5"/>`;
+        lines += `<line x1="${xm}" y1="${(y1+y1b)/2}" x2="${x2}" y2="${y2}" stroke="rgba(57,255,20,.45)" stroke-width="1.5"/>`;
       }
     }
     return `<svg width="${gapW}" height="${h}" style="flex-shrink:0;margin-top:32px" viewBox="0 0 ${gapW} ${h}">${lines}</svg>`;
@@ -2438,46 +2456,70 @@ function _renderChaveamento() {
     const y = h/2;
     const g = 40;
     return `<svg width="${g}" height="${h}" style="flex-shrink:0;margin-top:32px" viewBox="0 0 ${g} ${h}">
-      <line x1="${flip?g:0}" y1="${y}" x2="${flip?0:g}" y2="${y}" stroke="rgba(57,255,20,.22)" stroke-width="1.5"/>
+      <line x1="${flip?g:0}" y1="${y}" x2="${flip?0:g}" y2="${y}" stroke="rgba(57,255,20,.45)" stroke-width="1.5"/>
     </svg>`;
   }
 
   // ── Taça SVG dourada ─────────────────────────────────────────
-  const taca = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 160" width="120" height="160">
+  const taca = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 140 200" width="140" height="200">
     <defs>
-      <linearGradient id="gld" x1="0%" y1="0%" x2="100%" y2="100%">
-        <stop offset="0%"   stop-color="#fff7a0"/>
-        <stop offset="30%"  stop-color="#f5c518"/>
-        <stop offset="60%"  stop-color="#d4a017"/>
-        <stop offset="100%" stop-color="#8b6914"/>
+      <linearGradient id="gldA" x1="0%" y1="0%" x2="60%" y2="100%">
+        <stop offset="0%"   stop-color="#fffde0"/>
+        <stop offset="20%"  stop-color="#f9e04b"/>
+        <stop offset="50%"  stop-color="#e6a800"/>
+        <stop offset="80%"  stop-color="#c47d00"/>
+        <stop offset="100%" stop-color="#7a4a00"/>
       </linearGradient>
-      <linearGradient id="gld2" x1="0%" y1="0%" x2="0%" y2="100%">
-        <stop offset="0%"   stop-color="#ffe566"/>
-        <stop offset="100%" stop-color="#a07010"/>
+      <linearGradient id="gldB" x1="100%" y1="0%" x2="0%" y2="100%">
+        <stop offset="0%"   stop-color="#fff5b0"/>
+        <stop offset="40%"  stop-color="#f0c030"/>
+        <stop offset="100%" stop-color="#9a6000"/>
       </linearGradient>
-      <filter id="glow2"><feGaussianBlur stdDeviation="3" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+      <linearGradient id="gldStem" x1="0%" y1="0%" x2="100%" y2="0%">
+        <stop offset="0%"   stop-color="#b07000"/>
+        <stop offset="40%"  stop-color="#f9e04b"/>
+        <stop offset="100%" stop-color="#9a6000"/>
+      </linearGradient>
+      <filter id="glwA" x="-30%" y="-30%" width="160%" height="160%">
+        <feGaussianBlur stdDeviation="4" result="blur"/>
+        <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+      </filter>
+      <filter id="glwB" x="-60%" y="-60%" width="220%" height="220%">
+        <feGaussianBlur stdDeviation="8" result="blur"/>
+        <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+      </filter>
     </defs>
-    <!-- base -->
-    <rect x="35" y="145" width="50" height="8" rx="3" fill="url(#gld)" filter="url(#glow2)"/>
-    <rect x="42" y="134" width="36" height="13" rx="2" fill="url(#gld2)"/>
-    <!-- stem -->
-    <rect x="52" y="108" width="16" height="28" rx="3" fill="url(#gld)"/>
-    <!-- handles -->
-    <path d="M22,30 Q8,30 8,55 Q8,75 22,78" stroke="url(#gld)" stroke-width="7" fill="none" stroke-linecap="round"/>
-    <path d="M98,30 Q112,30 112,55 Q112,75 98,78" stroke="url(#gld)" stroke-width="7" fill="none" stroke-linecap="round"/>
-    <!-- cup body -->
-    <path d="M22,12 L98,12 Q102,12 102,16 L98,78 Q95,108 60,108 Q25,108 22,78 L18,16 Q18,12 22,12 Z" fill="url(#gld)" filter="url(#glow2)"/>
-    <!-- shine -->
-    <path d="M35,20 Q40,18 45,22 L42,65 Q38,62 34,65 Z" fill="rgba(255,255,255,.25)"/>
-    <!-- FIFA text -->
-    <text x="60" y="68" font-family="Arial Black,sans-serif" font-size="11" font-weight="900" fill="rgba(0,0,0,.35)" text-anchor="middle" letter-spacing="2">FIFA</text>
-    <text x="60" y="85" font-family="Arial Black,sans-serif" font-size="7.5" font-weight="700" fill="rgba(0,0,0,.25)" text-anchor="middle" letter-spacing="1.5">WORLD CUP</text>
-    <!-- glow ring -->
-    <ellipse cx="60" cy="108" rx="22" ry="5" fill="rgba(245,197,24,.25)" filter="url(#glow2)"/>
+    <!-- halo de brilho atrás da taça -->
+    <ellipse cx="70" cy="90" rx="45" ry="55" fill="rgba(245,200,30,.10)" filter="url(#glwB)"/>
+    <!-- base larga -->
+    <rect x="30" y="182" width="80" height="11" rx="5" fill="url(#gldA)" filter="url(#glwA)"/>
+    <!-- plataforma -->
+    <rect x="40" y="168" width="60" height="16" rx="4" fill="url(#gldB)"/>
+    <!-- haste -->
+    <path d="M58,132 Q60,168 70,168 Q80,168 82,132" fill="url(#gldStem)"/>
+    <!-- alças esquerda -->
+    <path d="M28,42 Q6,42 6,72 Q6,100 28,104" stroke="url(#gldA)" stroke-width="9" fill="none" stroke-linecap="round" filter="url(#glwA)"/>
+    <!-- alças direita -->
+    <path d="M112,42 Q134,42 134,72 Q134,100 112,104" stroke="url(#gldA)" stroke-width="9" fill="none" stroke-linecap="round" filter="url(#glwA)"/>
+    <!-- corpo principal -->
+    <path d="M28,14 L112,14 Q118,14 118,20 L112,104 Q108,132 70,132 Q32,132 28,104 L22,20 Q22,14 28,14 Z" fill="url(#gldA)" filter="url(#glwA)"/>
+    <!-- sombra interna esquerda -->
+    <path d="M28,14 L42,14 L36,128 Q32,130 28,104 L22,20 Q22,14 28,14 Z" fill="rgba(0,0,0,.18)"/>
+    <!-- highlight central -->
+    <path d="M52,22 Q58,18 63,24 L59,90 Q54,86 50,90 Z" fill="rgba(255,255,255,.30)"/>
+    <!-- highlight topo -->
+    <ellipse cx="70" cy="18" rx="22" ry="5" fill="rgba(255,255,220,.35)"/>
+    <!-- detalhe baixo corpo -->
+    <path d="M38,118 Q70,126 102,118 Q100,128 70,132 Q40,132 38,118 Z" fill="rgba(0,0,0,.15)"/>
+    <!-- texto FIFA -->
+    <text x="70" y="76" font-family="Arial Black,sans-serif" font-size="14" font-weight="900" fill="rgba(0,0,0,.30)" text-anchor="middle" letter-spacing="2.5">FIFA</text>
+    <text x="70" y="96" font-family="Arial Black,sans-serif" font-size="8.5" font-weight="700" fill="rgba(0,0,0,.22)" text-anchor="middle" letter-spacing="1.5">WORLD CUP</text>
+    <!-- reflexo base -->
+    <ellipse cx="70" cy="132" rx="28" ry="6" fill="rgba(245,197,24,.30)" filter="url(#glwA)"/>
   </svg>`;
 
   // ── Montar HTML ──────────────────────────────────────────────
-  let html = `<div style="padding:40px 40px 60px;background:#080808;min-width:1900px">`;
+  let html = `<div style="padding:40px 40px 60px;background:transparent;min-width:1900px">`;
 
   // Cabeçalho
   html += `<div style="text-align:center;margin-bottom:44px;position:relative">
@@ -2548,15 +2590,15 @@ function _renderChaveamento() {
       return match ? {...f, id: match.id} : f;
     });
 
-    html += `<div style="background:linear-gradient(160deg,#131313,#0d0d0d);border:1.5px solid rgba(245,197,24,.2);border-radius:16px;width:180px;overflow:hidden;flex-shrink:0">
+    html += `<div style="background:linear-gradient(160deg,#131313,#0d0d0d);border:1.5px solid rgba(245,197,24,.25);border-radius:16px;width:200px;overflow:hidden;flex-shrink:0">
       <div style="background:linear-gradient(135deg,rgba(245,197,24,.15),rgba(245,197,24,.05));padding:10px 12px 8px;border-bottom:1px solid rgba(245,197,24,.15);text-align:center">
         <span style="font-family:'Bebas Neue',sans-serif;font-size:22px;background:linear-gradient(135deg,#fff7a0,#f5c518);-webkit-background-clip:text;-webkit-text-fill-color:transparent;letter-spacing:.08em">GRUPO ${letra}</span>
       </div>
       ${lista.map((t,i) => `<div style="display:flex;align-items:center;gap:10px;padding:10px 12px;${i<lista.length-1?'border-bottom:1px solid rgba(255,255,255,.05)':''}">
-        <div style="width:38px;height:38px;flex-shrink:0;display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,.04);border-radius:8px;overflow:hidden">
-          ${t.id ? `<img src="${API}/img/team/${t.id}/" style="width:36px;height:36px;object-fit:contain" onerror="this.outerHTML='<span style=font-size:22px>🏳️</span>'">` : `<span style="font-size:22px">🏳️</span>`}
+        <div style="width:48px;height:48px;flex-shrink:0;display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,.04);border-radius:10px;overflow:hidden">
+          ${t.id ? `<img src="${API}/img/team/${t.id}/" style="width:46px;height:46px;object-fit:contain" onerror="this.outerHTML='<span style=font-size:26px>🏳️</span>'">` : `<span style="font-size:26px">🏳️</span>`}
         </div>
-        <span style="font-size:13px;color:#ccc;font-weight:600;line-height:1.2">${esc2(t.name)}</span>
+        <span style="font-size:14px;color:#ddd;font-weight:600;line-height:1.2">${esc2(t.name)}</span>
       </div>`).join('')}
     </div>`;
   }
@@ -2997,6 +3039,69 @@ async function verStatsJogadorDireto(playerId, playerName, teamName, playerPos){
   }
 }
 
+
+/* ── ÁRBITROS NÃO CONFIRMADOS ── */
+let _arbNCCache = [];
+let _arbNCCarregado = false;
+
+function toggleArbitrosNaoConfirmados() {
+  const area = document.getElementById('arb-nc-area');
+  const chev = document.getElementById('arb-nc-chevron');
+  const aberto = area.style.display !== 'none';
+  area.style.display = aberto ? 'none' : 'block';
+  chev.style.transform = aberto ? 'rotate(0deg)' : 'rotate(90deg)';
+  if (!aberto && !_arbNCCarregado) carregarArbitrosNC();
+}
+
+async function carregarArbitrosNC() {
+  const lista = document.getElementById('arb-nc-lista');
+  lista.innerHTML = `<div class="loading"><div class="spinner-wrap"><div class="spinner"></div></div><p>Carregando lista...</p></div>`;
+  try {
+    const r = await fetch(`${API}/api/arbitros?limit=200`);
+    const d = await r.json();
+    _arbNCCache = d.results || d.arbitros || [];
+    _arbNCCarregado = true;
+    renderArbitrosNC(_arbNCCache);
+  } catch(e) {
+    lista.innerHTML = `<div class="err">❌ ${e.message}</div>`;
+  }
+}
+
+function filtrarArbitrosNC(termo) {
+  if (!_arbNCCache.length) return;
+  if (!termo.trim()) { renderArbitrosNC(_arbNCCache); return; }
+  const t = termo.toLowerCase();
+  renderArbitrosNC(_arbNCCache.filter(r => (r.name||'').toLowerCase().includes(t)));
+}
+
+function limparFiltroNC() {
+  document.getElementById('inp-arb-nc').value = '';
+  renderArbitrosNC(_arbNCCache);
+}
+
+function renderArbitrosNC(arbs) {
+  const lista = document.getElementById('arb-nc-lista');
+  if (!arbs.length) {
+    lista.innerHTML = `<div class="empty"><div class="empty-icon">👔</div><p>Nenhum árbitro encontrado</p></div>`;
+    return;
+  }
+  lista.innerHTML = arbs.map(ref => `
+    <div class="player-result-item" onclick="verStatsArbitro(${ref.id||0},'${esc(ref.name||'')}')">
+      <div class="pr-photo" style="background:rgba(100,100,100,.08);border-color:rgba(100,100,100,.2)">
+        ${ref.id?`<img src="${API}/img/manager/${ref.id}" onerror="this.parentElement.textContent='👔'">`:'👔'}
+      </div>
+      <div class="pr-info">
+        <div class="pr-name">${ref.name||'—'}</div>
+        <div class="pr-sub" style="display:flex;flex-wrap:wrap;gap:8px;margin-top:3px">
+          ${ref.avg_yellow!=null?`<span>🟨 ${Number(ref.avg_yellow).toFixed(2)}/jogo</span>`:''}
+          ${ref.avg_red!=null?`<span>🟥 ${Number(ref.avg_red).toFixed(2)}/jogo</span>`:''}
+          ${ref.country&&ref.country!=='—'?`<span style="color:#666">${ref.country}</span>`:''}
+          <span style="color:#555">${ref.matches||0} partidas</span>
+        </div>
+      </div>
+      <div class="pr-pos" style="color:#888;border-color:rgba(100,100,100,.3);background:rgba(100,100,100,.08)">${ref.matches||'?'}🎮</div>
+    </div>`).join('');
+}
 
 /* ── ÁRBITROS ── */
 let arbitrosCarregados = false;
