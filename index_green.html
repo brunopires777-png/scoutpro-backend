@@ -1695,10 +1695,9 @@ function renderMtResumo(d){
       <div class="inc"><span class="inc-min">${g.minute}'</span><span class="inc-ico">⚽</span><span class="inc-txt">${g.player||g.player_name||'—'}</span><span class="inc-side">${g.is_home?ev.home_team:ev.away_team}</span></div>`).join('')}</div>`;
   }
   const sh=d.stats?.stats?.home,sa=d.stats?.stats?.away;
-  const xgH = sh?.xg?.actual ?? sh?.xg?.value ?? sh?.xg
-    ?? ev?.home_xg ?? ev?.xg_home ?? ev?.actual_home_xg ?? null;
-  const xgA = sa?.xg?.actual ?? sa?.xg?.value ?? sa?.xg
-    ?? ev?.away_xg ?? ev?.xg_away ?? ev?.actual_away_xg ?? null;
+  // xG: prioriza live > actual > stats — usa ?? para não perder valores 0
+  const xgH = ev?.home_xg ?? sh?.xg?.actual ?? sh?.xg?.value ?? sh?.xg ?? null;
+  const xgA = ev?.away_xg ?? sa?.xg?.actual ?? sa?.xg?.value ?? sa?.xg ?? null;
   const isLive = isLiveEv(ev);
   const fmtXg = v => (v!=null && !isNaN(v)) ? Number(v).toFixed(2) : '—';
   const xgLiveId = `xg-live-${ev?.id||''}`;
@@ -1714,22 +1713,7 @@ function renderMtResumo(d){
       <div id="xg-away-val-${ev?.id||''}" style="font-family:'Bebas Neue',sans-serif;font-size:32px;color:var(--orange)">${fmtXg(xgA)}</div>
     </div>
   </div>`;
-  // Se ao vivo e xG não veio nos stats: busca em background via /api/events/{id}/stats
-  if(isLive && ev?.id && (xgH===null||xgA===null)){
-    (async()=>{
-      try{
-        const st=await apiFetch(`/api/jogos/${ev.id}/stats`,null,0);
-        const h=st?.stats?.home||st?.home||{};
-        const a=st?.stats?.away||st?.away||{};
-        const lxgH=h?.xg?.actual??h?.xg?.value??h?.xg??null;
-        const lxgA=a?.xg?.actual??a?.xg?.value??a?.xg??null;
-        const elH=document.getElementById(`xg-home-val-${ev.id}`);
-        const elA=document.getElementById(`xg-away-val-${ev.id}`);
-        if(elH&&lxgH!=null)elH.textContent=Number(lxgH).toFixed(2);
-        if(elA&&lxgA!=null)elA.textContent=Number(lxgA).toFixed(2);
-      }catch(_){}
-    })();
-  }
+
   // Predição IA inline — aparece abaixo do xG
   if(d.predicao?.markets){
     const m=d.predicao.markets,rp=d.predicao.recommendations||{};
@@ -3404,4 +3388,4 @@ document.addEventListener('keydown',e=>{if(e.key==='Enter'&&document.activeEleme
 
 
 </body>
-            </html>
+</html>
