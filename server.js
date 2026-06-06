@@ -242,39 +242,53 @@ app.get('/api/worldcup/matches', async (req, res) => {
 // Retorna os 12 grupos com times, IDs e escudos
 // ─────────────────────────────────────────────
 app.get('/api/copa2026/grupos', async (req, res) => {
-  try {
-    // Busca todos os call-ups para pegar team_id por grupo
-    const data = await bsd('/v2/worldcup/squads/', { limit: 200, status: 'official' });
-    const rows = data.results || [];
-
-    // Monta mapa team_id -> {name, group}
-    const teamMap = new Map();
-    for (const r of rows) {
-      if (r.team_id && !teamMap.has(r.team_id)) {
-        // Precisamos do nome do time — buscamos via /v2/teams/{id}/
-        teamMap.set(r.team_id, { id: r.team_id, group: r.group || null });
-      }
-    }
-
-    // Busca nomes dos times em batch (usa /v2/teams/ com league_id da Copa)
-    // Alternativa: busca grupos diretamente pelas squads por grupo
-    const grupos = {};
-    const letras = ['A','B','C','D','E','F','G','H','I','J','K','L'];
-    await Promise.allSettled(letras.map(async (letra) => {
-      try {
-        const gd = await bsd('/v2/worldcup/squads/', { group: letra, limit: 200, status: 'official' });
-        const seen = new Map();
-        for (const r of (gd.results || [])) {
-          if (r.team_id && !seen.has(r.team_id)) {
-            seen.set(r.team_id, { id: r.team_id, name: r.team_name || r.club || '', group: letra });
-          }
-        }
-        grupos[letra] = Array.from(seen.values());
-      } catch(_) { grupos[letra] = []; }
-    }));
-
-    res.json({ grupos });
-  } catch(e) { res.status(500).json({ error: e.message }); }
+  // IDs reais da BSD para cada seleção — mapeados via /api/v2/teams/?name=
+  // Fonte da verdade: IDs fixos pois seleções não mudam de ID
+  const TEAM_IDS = {
+    // Grupo A
+    'Mexico': 3, 'Czechia': 42, 'South Africa': 100, 'South Korea': 63,
+    // Grupo B
+    'Bosnia & Herzegovina': 45, 'Canada': 105, 'Qatar': 160, 'Switzerland': 36,
+    // Grupo C
+    'Brazil': 5, 'Haiti': 190, 'Morocco': 92, 'Scotland': 27,
+    // Grupo D
+    'Australia': 97, 'Paraguay': 118, 'Türkiye': 50, 'USA': 82,
+    // Grupo E
+    'Curaçao': 229, 'Ecuador': 112, 'Germany': 4, "Côte d'Ivoire": 89,
+    // Grupo F
+    'Japan': 64, 'Netherlands': 33, 'Sweden': 34, 'Tunisia': 93,
+    // Grupo G
+    'Belgium': 30, 'Egypt': 91, 'Iran': 80, 'New Zealand': 134,
+    // Grupo H
+    'Cabo Verde': 220, 'Saudi Arabia': 131, 'Spain': 9, 'Uruguay': 77,
+    // Grupo I
+    'France': 2, 'Iraq': 164, 'Norway': 48, 'Senegal': 90,
+    // Grupo J
+    'Algeria': 95, 'Argentina': 7, 'Austria': 44, 'Jordan': 196,
+    // Grupo K
+    'Colombia': 109, 'DR Congo': 187, 'Portugal': 31, 'Uzbekistan': 193,
+    // Grupo L
+    'Croatia': 46, 'England': 11, 'Ghana': 85, 'Panama': 192,
+  };
+  const GRUPOS_FIXOS = {
+    A:['Mexico','Czechia','South Africa','South Korea'],
+    B:['Bosnia & Herzegovina','Canada','Qatar','Switzerland'],
+    C:['Brazil','Haiti','Morocco','Scotland'],
+    D:['Australia','Paraguay','Türkiye','USA'],
+    E:['Curaçao','Ecuador','Germany',"Côte d'Ivoire"],
+    F:['Japan','Netherlands','Sweden','Tunisia'],
+    G:['Belgium','Egypt','Iran','New Zealand'],
+    H:['Cabo Verde','Saudi Arabia','Spain','Uruguay'],
+    I:['France','Iraq','Norway','Senegal'],
+    J:['Algeria','Argentina','Austria','Jordan'],
+    K:['Colombia','DR Congo','Portugal','Uzbekistan'],
+    L:['Croatia','England','Ghana','Panama'],
+  };
+  const grupos = {};
+  for (const [letra, times] of Object.entries(GRUPOS_FIXOS)) {
+    grupos[letra] = times.map(name => ({ name, id: TEAM_IDS[name] || null }));
+  }
+  res.json({ grupos });
 });
 
 // ─────────────────────────────────────────────
