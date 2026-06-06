@@ -237,6 +237,102 @@ app.get('/api/worldcup/matches', async (req, res) => {
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
+// ─────────────────────────────────────────────
+// COPA 2026 — Grupos com IDs reais via BSD worldcup/squads
+// Retorna os 12 grupos com times, IDs e escudos
+// ─────────────────────────────────────────────
+app.get('/api/copa2026/grupos', async (req, res) => {
+  try {
+    // Busca todos os call-ups para pegar team_id por grupo
+    const data = await bsd('/v2/worldcup/squads/', { limit: 200, status: 'official' });
+    const rows = data.results || [];
+
+    // Monta mapa team_id -> {name, group}
+    const teamMap = new Map();
+    for (const r of rows) {
+      if (r.team_id && !teamMap.has(r.team_id)) {
+        // Precisamos do nome do time — buscamos via /v2/teams/{id}/
+        teamMap.set(r.team_id, { id: r.team_id, group: r.group || null });
+      }
+    }
+
+    // Busca nomes dos times em batch (usa /v2/teams/ com league_id da Copa)
+    // Alternativa: busca grupos diretamente pelas squads por grupo
+    const grupos = {};
+    const letras = ['A','B','C','D','E','F','G','H','I','J','K','L'];
+    await Promise.allSettled(letras.map(async (letra) => {
+      try {
+        const gd = await bsd('/v2/worldcup/squads/', { group: letra, limit: 200, status: 'official' });
+        const seen = new Map();
+        for (const r of (gd.results || [])) {
+          if (r.team_id && !seen.has(r.team_id)) {
+            seen.set(r.team_id, { id: r.team_id, name: r.team_name || r.club || '', group: letra });
+          }
+        }
+        grupos[letra] = Array.from(seen.values());
+      } catch(_) { grupos[letra] = []; }
+    }));
+
+    res.json({ grupos });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// ─────────────────────────────────────────────
+// COPA 2026 — Chaveamento completo
+// Retorna jogos organizados por fase com placares reais
+// ─────────────────────────────────────────────
+app.get('/api/copa2026/chaveamento', async (req, res) => {
+  try {
+    // Descobrir league_id da Copa 2026
+    let lgId = null;
+    try {
+      const lgs = await bsd('/leagues/', { search: 'World Cup', limit: 10 });
+      const wc = (lgs.results||[]).find(l =>
+        l.name?.toLowerCase().includes('world cup') || l.name?.toLowerCase().includes('mundial')
+      );
+      lgId = wc?.id || null;
+    } catch(_) {}
+
+    // Busca todos os jogos da Copa 2026
+    const params = {
+      date_from: '2026-06-01',
+      date_to:   '2026-07-20',
+      limit: 200
+    };
+    if (lgId) params.league_id = lgId;
+    const data = await bsd('/events/', params);
+    const jogos = (data.results || []).map(ev => ({
+      id:           ev.id,
+      home_team:    ev.home_team || ev.home_team_obj?.name || '—',
+      away_team:    ev.away_team || ev.away_team_obj?.name || '—',
+      home_team_id: ev.home_team_id || ev.home_team_obj?.id || null,
+      away_team_id: ev.away_team_id || ev.away_team_obj?.id || null,
+      home_score:   ev.home_score ?? null,
+      away_score:   ev.away_score ?? null,
+      event_date:   ev.event_date,
+      status:       ev.status || 'notstarted',
+      round:        ev.round_name || ev.round || ev.group_name || '',
+      venue:        ev.venue_name || ev.venue?.name || '',
+      venue_city:   ev.venue_city || ev.venue?.city || '',
+    }));
+
+    // Classifica por fase baseado no round/group_name
+    const fases = { grupos: [], r32: [], r16: [], qf: [], sf: [], terceiro: [], final: [] };
+    for (const j of jogos) {
+      const r = (j.round || '').toLowerCase();
+      if      (r.includes('final') && r.includes('third'))    fases.terceiro.push(j);
+      else if (r.includes('final') && !r.includes('semi') && !r.includes('quarter') && !r.includes('round')) fases.final.push(j);
+      else if (r.includes('semi'))                             fases.sf.push(j);
+      else if (r.includes('quarter'))                         fases.qf.push(j);
+      else if (r.includes('round of 16') || r.includes('r16') || r.includes('oitava')) fases.r16.push(j);
+      else if (r.includes('round of 32') || r.includes('r32') || r.includes('dezesseis')) fases.r32.push(j);
+      else                                                     fases.grupos.push(j);
+    }
+
+    res.json({ fases, total: jogos.length, league_id: lgId });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
 // GET /api/debug/team?q=Palmeiras — mostra qual ID a busca retorna e de onde vem
 app.get('/api/debug/team', async (req, res) => {
   const q = (req.query.q||'').toLowerCase();
