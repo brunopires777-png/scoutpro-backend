@@ -1329,54 +1329,63 @@ app.get('/api/arbitros/proximos', async (req, res) => {
   try {
     const { league_id, name } = req.query;
 
-    // ESTRATÉGIA DUPLA:
-    // 1. Busca /referees/ diretamente (lista completa com stats)
-    // 2. Busca eventos próximos para cruzar jogos confirmados
-    const refParams = { limit: 200, min_matches: 1 };
-    if (league_id) refParams.id_da_liga = league_id;
-    if (name)      refParams.name       = name;
+    // NOVA ESTRATÉGIA: partir dos eventos da semana (fonte da verdade dos escalados)
+    // e enriquecer com dados do árbitro via /referees/{id}/
+    const evData = await bsd('/events/', {
+      date_from: today(),
+      date_to:   dayOffset(7),
+      limit:     500,
+      tz:        'America/Sao_Paulo',
+      ...(league_id ? { league: league_id } : {})
+    });
+    const eventos = evData.results || [];
 
-    const [refData, evData] = await Promise.allSettled([
-      bsd('/referees/', refParams),
-      bsd('/events/', {
-        date_from: today(),
-        date_to: dayOffset(7),
-        limit: 500,
-        tz: 'America/Sao_Paulo',
-        ...(league_id ? { league: league_id } : {})
-      })
-    ]);
-
-    const lista   = refData.status   === 'fulfilled' ? (refData.value.results   || []) : [];
-    const eventos = evData.status === 'fulfilled' ? (evData.value.results || []) : [];
-
-    // Mapa de jogos por referee_id
-    const jogosMap = new Map();
+    // Coleta todos os referee_id únicos dos eventos
+    const arbMap = new Map(); // id -> { id, jogos:[] }
     for (const ev of eventos) {
-      const rId = ev.referee_id || null;
+      const rId = ev.referee_id || ev.referee?.id || null;
       if (!rId) continue;
-      if (!jogosMap.has(rId)) jogosMap.set(rId, []);
-      jogosMap.get(rId).push({
-        id: ev.id,
-        home_team:  ev.home_team,
-        away_team:  ev.away_team,
-        event_date: ev.event_date,
+      if (!arbMap.has(rId)) arbMap.set(rId, { id: rId, jogos: [] });
+      arbMap.get(rId).jogos.push({
+        id:          ev.id,
+        home_team:   ev.home_team  || ev.home_team_obj?.name  || '—',
+        away_team:   ev.away_team  || ev.away_team_obj?.name  || '—',
+        event_date:  ev.event_date || null,
         league_name: ev.league?.name || ev.league_name || '—'
       });
     }
 
-    const arbitros = lista.map(r => ({
-      id:         r.id,
-      name:       r.name || '—',
-      country:    r.country || r.nationality_a3 || '—',
-      matches:    r.matches || 0,
-      avg_yellow: r.avg_yellow_per_match || null,
-      avg_red:    r.avg_red_per_match    || null,
-      avg_fouls:  r.avg_fouls_per_match  || null,
-      jogos:      jogosMap.get(r.id) || []
-    })).filter(r => r.name !== '—');
+    // Busca detalhes de cada árbitro em paralelo (usa cache _refCache quando possível)
+    const ids = Array.from(arbMap.keys());
+    const detalhes = await Promise.allSettled(
+      ids.map(id => bsd(`/referees/${id}/`))
+    );
 
-    // Ordena: 1º os que têm jogos confirmados (por data do próximo jogo), depois por nº de partidas
+    const arbitros = [];
+    for (let i = 0; i < ids.length; i++) {
+      const id  = ids[i];
+      const det = detalhes[i].status === 'fulfilled' ? detalhes[i].value : null;
+      const nome = det?.name || det?.full_name || det?.display_name || null;
+
+      // Guarda no cache de nomes
+      if (nome) _refCache.set(id, { name: nome, ts: Date.now() });
+
+      // Filtro por nome se passado
+      if (name && nome && !nome.toLowerCase().includes(name.toLowerCase())) continue;
+
+      arbitros.push({
+        id,
+        name:       nome || `Árbitro #${id}`,
+        country:    det?.country || det?.nationality_a3 || '—',
+        matches:    det?.matches || 0,
+        avg_yellow: det?.avg_yellow_per_match || null,
+        avg_red:    det?.avg_red_per_match    || null,
+        avg_fouls:  det?.avg_fouls_per_match  || null,
+        jogos:      arbMap.get(id)?.jogos || []
+      });
+    }
+
+    // Ordena por data do próximo jogo
     arbitros.sort((a, b) => {
       const aNext = a.jogos[0]?.event_date || null;
       const bNext = b.jogos[0]?.event_date || null;
@@ -1385,6 +1394,7 @@ app.get('/api/arbitros/proximos', async (req, res) => {
       if (aNext && bNext) return new Date(aNext) - new Date(bNext);
       return (b.matches || 0) - (a.matches || 0);
     });
+
     res.json({ arbitros, total: arbitros.length });
   } catch (e) {
     console.error('[arbitros/proximos]', e.message);
