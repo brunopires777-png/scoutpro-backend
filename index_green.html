@@ -1696,27 +1696,39 @@ function renderMtResumo(d){
   }
   const sh=d.stats?.stats?.home,sa=d.stats?.stats?.away;
   const xgH = sh?.xg?.actual ?? sh?.xg?.value ?? sh?.xg
-    ?? ev?.home_xg ?? ev?.xg_home ?? ev?.actual_home_xg
-    ?? d.predicao?.markets?.expected_goals?.home
-    ?? d.predicao?.expected_goals?.home ?? null;
+    ?? ev?.home_xg ?? ev?.xg_home ?? ev?.actual_home_xg ?? null;
   const xgA = sa?.xg?.actual ?? sa?.xg?.value ?? sa?.xg
-    ?? ev?.away_xg ?? ev?.xg_away ?? ev?.actual_away_xg
-    ?? d.predicao?.markets?.expected_goals?.away
-    ?? d.predicao?.expected_goals?.away ?? null;
-  // Sempre mostra xG — se jogo não iniciou, mostra xG predito
-  const xgLabel = 'xG'; // sempre simples
-  {
-    const fmtXg = v => (v!=null && !isNaN(v)) ? Number(v).toFixed(2) : '—';
-    html+=`<div style="display:flex;gap:8px;margin-top:12px">
-      <div style="flex:1;background:rgba(16,16,16,0.95);border:1px solid rgba(50,50,50,0.4);border-radius:10px;padding:14px;text-align:center">
-        <div class="slabel" style="color:#999;margin-bottom:6px">${xgLabel} CASA</div>
-        <div style="font-family:'Bebas Neue',sans-serif;font-size:32px;color:var(--cyan)">${fmtXg(xgH)}</div>
-      </div>
-      <div style="flex:1;background:rgba(16,16,16,0.95);border:1px solid rgba(50,50,50,0.4);border-radius:10px;padding:14px;text-align:center">
-        <div class="slabel" style="color:#999;margin-bottom:6px">${xgLabel} FORA</div>
-        <div style="font-family:'Bebas Neue',sans-serif;font-size:32px;color:var(--orange)">${fmtXg(xgA)}</div>
-      </div>
-    </div>`;
+    ?? ev?.away_xg ?? ev?.xg_away ?? ev?.actual_away_xg ?? null;
+  const isLive = isLiveEv(ev);
+  const fmtXg = v => (v!=null && !isNaN(v)) ? Number(v).toFixed(2) : '—';
+  const xgLiveId = `xg-live-${ev?.id||''}`;
+  html+=`<div style="display:flex;gap:8px;margin-top:12px" id="${xgLiveId}">
+    <div style="flex:1;background:rgba(16,16,16,0.95);border:1px solid ${isLive?'rgba(57,255,20,.25)':'rgba(50,50,50,0.4)'};border-radius:10px;padding:14px;text-align:center;position:relative">
+      ${isLive?'<div style="position:absolute;top:6px;right:8px;width:6px;height:6px;border-radius:50%;background:var(--green);animation:pulse 1.2s infinite"></div>':''}
+      <div class="slabel" style="color:#999;margin-bottom:6px">XG CASA</div>
+      <div id="xg-home-val-${ev?.id||''}" style="font-family:'Bebas Neue',sans-serif;font-size:32px;color:var(--cyan)">${fmtXg(xgH)}</div>
+    </div>
+    <div style="flex:1;background:rgba(16,16,16,0.95);border:1px solid ${isLive?'rgba(57,255,20,.25)':'rgba(50,50,50,0.4)'};border-radius:10px;padding:14px;text-align:center;position:relative">
+      ${isLive?'<div style="position:absolute;top:6px;right:8px;width:6px;height:6px;border-radius:50%;background:var(--green);animation:pulse 1.2s infinite"></div>':''}
+      <div class="slabel" style="color:#999;margin-bottom:6px">XG FORA</div>
+      <div id="xg-away-val-${ev?.id||''}" style="font-family:'Bebas Neue',sans-serif;font-size:32px;color:var(--orange)">${fmtXg(xgA)}</div>
+    </div>
+  </div>`;
+  // Se ao vivo e xG não veio nos stats: busca em background via /api/events/{id}/stats
+  if(isLive && ev?.id && (xgH===null||xgA===null)){
+    (async()=>{
+      try{
+        const st=await apiFetch(`/api/jogos/${ev.id}/stats`,null,0);
+        const h=st?.stats?.home||st?.home||{};
+        const a=st?.stats?.away||st?.away||{};
+        const lxgH=h?.xg?.actual??h?.xg?.value??h?.xg??null;
+        const lxgA=a?.xg?.actual??a?.xg?.value??a?.xg??null;
+        const elH=document.getElementById(`xg-home-val-${ev.id}`);
+        const elA=document.getElementById(`xg-away-val-${ev.id}`);
+        if(elH&&lxgH!=null)elH.textContent=Number(lxgH).toFixed(2);
+        if(elA&&lxgA!=null)elA.textContent=Number(lxgA).toFixed(2);
+      }catch(_){}
+    })();
   }
   // Predição IA inline — aparece abaixo do xG
   if(d.predicao?.markets){
@@ -1835,7 +1847,7 @@ function renderMtEscalacao(d){
       🟢 Escalação confirmada.
     </div>
   </div>
-  \${(()=>{
+  ${(()=>{
     const uh=d.lineups?.unavailable_players?.home||[];
     const ua=d.lineups?.unavailable_players?.away||[];
     if(!uh.length&&!ua.length) return '';
@@ -1876,8 +1888,11 @@ function renderMtJogadores(d){
     return `<div style="margin-bottom:16px">
       <div style="font-size:11px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:#888;margin-bottom:10px;padding-bottom:6px;border-bottom:1px solid rgba(60,60,60,0.5)">${titulo}</div>
       ${players.map(p=>{
-        const name=p.player?.name||p.player?.short_name||p.player?.display_name||p.name||p.short_name||p.display_name||'—';
-        const pos=p.player?.position||p.position||'';
+        const name=p.player?.name||p.player?.short_name||p.player?.display_name||p.player?.full_name
+          ||p.name||p.short_name||p.display_name||p.full_name
+          ||p.player?.common_name||p.common_name||'—';
+        const playerId2=p.player_id||p.player?.id||p.id||null;
+        const pos=p.player?.position||p.position||p.player?.pos||p.pos||'';
         const min=p.minutes_played||p.mins||0;
         const gls=p.goals??0;
         const ass=p.goal_assist??p.assists??0;
@@ -1888,7 +1903,7 @@ function renderMtJogadores(d){
         const rColor=rc(rating);
         return `<div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid rgba(35,35,35,0.8)">
           <div style="width:36px;height:36px;border-radius:50%;overflow:hidden;flex-shrink:0;background:rgba(30,30,30,0.9);border:1px solid rgba(60,60,60,0.5);display:flex;align-items:center;justify-content:center;font-size:12px;color:#666">
-            <img src="${API}/img/player/${p.player_id||p.player?.id}" style="width:100%;height:100%;object-fit:cover" onerror="this.parentElement.textContent='👤'">
+            <img src="${API}/img/player/${playerId2}" style="width:100%;height:100%;object-fit:cover" onerror="this.parentElement.textContent='👤'">
           </div>
           <div style="flex:1;min-width:0">
             <div style="font-family:'Bebas Neue',sans-serif;font-size:16px;letter-spacing:0.03em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${name}</div>
@@ -3389,4 +3404,4 @@ document.addEventListener('keydown',e=>{if(e.key==='Enter'&&document.activeEleme
 
 
 </body>
-</html>
+            </html>
