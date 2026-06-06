@@ -2167,11 +2167,367 @@ async function carregarCopa(){
       html+=`<div class="empty"><div class="empty-icon">⏳</div><p>Jogos da Copa começam em Junho de 2026</p></div>`;
     }
 
+    // Botão fixo para abrir o chaveamento
+    html = `<div style="margin-bottom:16px">
+      <button onclick="abrirChaveamentoCopa()" style="width:100%;background:linear-gradient(135deg,rgba(57,255,20,.15),rgba(57,255,20,.05));border:1px solid rgba(57,255,20,.4);border-radius:14px;padding:14px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:10px">
+        <span style="font-size:24px">🏆</span>
+        <div style="text-align:left">
+          <div style="font-family:'Bebas Neue',sans-serif;font-size:18px;color:var(--green);letter-spacing:.06em">VER CHAVEAMENTO COMPLETO</div>
+          <div style="font-size:10px;color:#666;margin-top:1px">Grupos A–L · Oitavas · Quartas · Semis · Final</div>
+        </div>
+        <span style="color:var(--green);font-size:18px;margin-left:auto">›</span>
+      </button>
+    </div>` + html;
+
     el.innerHTML=html;
   }catch(e){
     copaCarregada=false;
     el.innerHTML=`<div class="err">❌ ${e.message}</div>`;
   }
+}
+
+// ── CHAVEAMENTO COPA 2026 ──────────────────────────────────────────────────────
+
+let _chaveamentoData = null;
+let _gruposData = null;
+
+async function abrirChaveamentoCopa() {
+  // Cria overlay
+  let ov = document.getElementById('chaveamento-overlay');
+  if (!ov) {
+    ov = document.createElement('div');
+    ov.id = 'chaveamento-overlay';
+    ov.style.cssText = 'position:fixed;inset:0;z-index:9998;background:rgba(0,0,0,.95);overflow:hidden;display:flex;flex-direction:column';
+    document.body.appendChild(ov);
+  }
+  ov.innerHTML = `
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-bottom:1px solid rgba(57,255,20,.2);flex-shrink:0;background:#0a0a0a">
+      <div style="display:flex;align-items:center;gap:8px">
+        <span style="font-size:20px">🏆</span>
+        <span style="font-family:'Bebas Neue',sans-serif;font-size:18px;color:var(--green);letter-spacing:.06em">CHAVEAMENTO FIFA WORLD CUP 2026</span>
+      </div>
+      <button onclick="fecharChaveamentoCopa()" style="background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.15);color:#fff;border-radius:50%;width:32px;height:32px;font-size:16px;cursor:pointer">✕</button>
+    </div>
+    <div style="font-size:10px;color:#444;text-align:center;padding:4px 0;flex-shrink:0">
+      ← Arraste para navegar · Pinch/scroll para zoom →
+    </div>
+    <div id="chaveamento-viewport" style="flex:1;overflow:hidden;position:relative;cursor:grab">
+      <div id="chaveamento-canvas" style="position:absolute;transform-origin:0 0;will-change:transform">
+        <div style="display:flex;align-items:center;justify-content:center;color:#555;font-size:14px;padding:60px">Carregando chaveamento...</div>
+      </div>
+    </div>`;
+  ov.style.display = 'flex';
+  document.body.style.overflow = 'hidden';
+  _initChaveamentoPanZoom();
+
+  // Carrega dados se ainda não tem
+  if (!_chaveamentoData || !_gruposData) {
+    try {
+      const [ch, gr] = await Promise.allSettled([
+        fetch(`${API}/api/copa2026/chaveamento`).then(r=>r.json()),
+        fetch(`${API}/api/copa2026/grupos`).then(r=>r.json())
+      ]);
+      _chaveamentoData = ch.status === 'fulfilled' ? ch.value : null;
+      _gruposData = gr.status === 'fulfilled' ? gr.value : null;
+    } catch(e) { console.error(e); }
+  }
+  _renderChaveamento();
+}
+
+function fecharChaveamentoCopa() {
+  const ov = document.getElementById('chaveamento-overlay');
+  if (ov) { ov.style.display = 'none'; }
+  document.body.style.overflow = '';
+}
+
+function _initChaveamentoPanZoom() {
+  const vp = document.getElementById('chaveamento-viewport');
+  const canvas = document.getElementById('chaveamento-canvas');
+  if (!vp || !canvas) return;
+  let scale = 0.72, tx = 20, ty = 20;
+  let dragging = false, lastX = 0, lastY = 0;
+  let lastDist = 0;
+
+  function applyTransform() {
+    canvas.style.transform = `translate(${tx}px,${ty}px) scale(${scale})`;
+  }
+  applyTransform();
+
+  vp.addEventListener('mousedown', e => { dragging=true; lastX=e.clientX; lastY=e.clientY; vp.style.cursor='grabbing'; });
+  window.addEventListener('mouseup', () => { dragging=false; vp.style.cursor='grab'; });
+  window.addEventListener('mousemove', e => {
+    if (!dragging) return;
+    tx += e.clientX - lastX; ty += e.clientY - lastY;
+    lastX = e.clientX; lastY = e.clientY;
+    applyTransform();
+  });
+  vp.addEventListener('wheel', e => {
+    e.preventDefault();
+    const factor = e.deltaY < 0 ? 1.1 : 0.9;
+    const rect = vp.getBoundingClientRect();
+    const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+    tx = mx - (mx - tx) * factor; ty = my - (my - ty) * factor;
+    scale = Math.max(0.3, Math.min(3, scale * factor));
+    applyTransform();
+  }, { passive: false });
+  vp.addEventListener('touchstart', e => {
+    if (e.touches.length === 1) { dragging=true; lastX=e.touches[0].clientX; lastY=e.touches[0].clientY; }
+    else if (e.touches.length === 2) { dragging=false; lastDist=Math.hypot(e.touches[0].clientX-e.touches[1].clientX,e.touches[0].clientY-e.touches[1].clientY); }
+    e.preventDefault();
+  }, { passive: false });
+  vp.addEventListener('touchmove', e => {
+    if (e.touches.length === 1 && dragging) {
+      tx += e.touches[0].clientX - lastX; ty += e.touches[0].clientY - lastY;
+      lastX = e.touches[0].clientX; lastY = e.touches[0].clientY;
+    } else if (e.touches.length === 2) {
+      const dist = Math.hypot(e.touches[0].clientX-e.touches[1].clientX,e.touches[0].clientY-e.touches[1].clientY);
+      const factor = dist / (lastDist || dist);
+      const mx = (e.touches[0].clientX+e.touches[1].clientX)/2;
+      const my = (e.touches[0].clientY+e.touches[1].clientY)/2;
+      const rect = vp.getBoundingClientRect();
+      const px = mx-rect.left, py = my-rect.top;
+      tx = px - (px-tx)*factor; ty = py - (py-ty)*factor;
+      scale = Math.max(0.3, Math.min(3, scale*factor));
+      lastDist = dist;
+    }
+    applyTransform();
+    e.preventDefault();
+  }, { passive: false });
+  vp.addEventListener('touchend', () => { dragging=false; });
+}
+
+function _renderChaveamento() {
+  const canvas = document.getElementById('chaveamento-canvas');
+  if (!canvas) return;
+
+  const fases = _chaveamentoData?.fases || {};
+  const grupos = _gruposData?.grupos || {};
+
+  // ── helpers de render ───────────────────────────────────────────
+  const esc = s => (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  const fmtData = s => {
+    if (!s) return '';
+    const d = new Date(s);
+    return d.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',timeZone:'America/Sao_Paulo'});
+  };
+
+  function cardJogoChav(jogo, labelH, labelA) {
+    const ht = jogo?.home_team || labelH || '?';
+    const at = jogo?.away_team || labelA || '?';
+    const htId = jogo?.home_team_id;
+    const atId = jogo?.away_team_id;
+    const hs = jogo?.home_score ?? null;
+    const as_ = jogo?.away_score ?? null;
+    const templacar = hs !== null && as_ !== null;
+    const data = fmtData(jogo?.event_date);
+    const cidade = jogo?.venue_city || '';
+    const vivo = jogo?.status === 'inprogress';
+    const clickable = jogo?.id ? `onclick="fecharChaveamentoCopa();abrirJogo(${jogo.id})" style="cursor:pointer"` : '';
+
+    return `<div ${clickable} style="background:#111;border:1px solid ${vivo?'rgba(57,255,20,.5)':'rgba(80,80,80,.6)'};border-radius:10px;width:178px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,.5)">
+      ${data||cidade?`<div style="font-size:9px;color:#444;text-align:center;padding:3px 6px 2px;border-bottom:1px solid #1a1a1a">${data}${data&&cidade?' · ':''}${cidade}</div>`:''}
+      <div style="display:flex;align-items:center;gap:5px;padding:6px 8px 5px">
+        ${htId?`<img src="${API}/img/team/${htId}/" style="width:20px;height:20px;object-fit:contain;flex-shrink:0" onerror="this.style.display='none'">`:'<span style="width:20px;text-align:center;flex-shrink:0;font-size:13px">🏳</span>'}
+        <span style="font-family:'Bebas Neue',sans-serif;font-size:13px;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:${templacar&&hs>as_?'#fff':'#aaa'}">${esc(ht)}</span>
+        <span style="font-family:'Bebas Neue',sans-serif;font-size:16px;color:${vivo?'var(--green)':'#ddd'};flex-shrink:0;min-width:22px;text-align:right">${templacar?hs:''}</span>
+      </div>
+      <div style="height:1px;background:#1e1e1e;margin:0 8px"></div>
+      <div style="display:flex;align-items:center;gap:5px;padding:5px 8px 6px">
+        ${atId?`<img src="${API}/img/team/${atId}/" style="width:20px;height:20px;object-fit:contain;flex-shrink:0" onerror="this.style.display='none'">`:'<span style="width:20px;text-align:center;flex-shrink:0;font-size:13px">🏳</span>'}
+        <span style="font-family:'Bebas Neue',sans-serif;font-size:13px;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:${templacar&&as_>hs?'#fff':'#aaa'}">${esc(at)}</span>
+        <span style="font-family:'Bebas Neue',sans-serif;font-size:16px;color:${vivo?'var(--green)':'#ddd'};flex-shrink:0;min-width:22px;text-align:right">${templacar?as_:''}</span>
+      </div>
+    </div>`;
+  }
+
+  function cardVazio(labelH='?', labelA='?') {
+    return `<div style="background:#0d0d0d;border:1px dashed #2a2a2a;border-radius:10px;width:178px;overflow:hidden">
+      <div style="display:flex;align-items:center;gap:5px;padding:6px 8px 5px">
+        <span style="width:20px;flex-shrink:0"></span>
+        <span style="font-family:'Bebas Neue',sans-serif;font-size:12px;color:#333;flex:1">${esc(labelH)}</span>
+      </div>
+      <div style="height:1px;background:#1a1a1a;margin:0 8px"></div>
+      <div style="display:flex;align-items:center;gap:5px;padding:5px 8px 6px">
+        <span style="width:20px;flex-shrink:0"></span>
+        <span style="font-family:'Bebas Neue',sans-serif;font-size:12px;color:#333;flex:1">${esc(labelA)}</span>
+      </div>
+    </div>`;
+  }
+
+  function colLabel(txt) {
+    return `<div style="font-family:'Bebas Neue',sans-serif;font-size:13px;color:var(--green);letter-spacing:.08em;text-align:center;margin-bottom:10px;opacity:.8">${txt}</div>`;
+  }
+
+  // ── Oitavas — 16 confrontos (R32 se existir, senão R16)
+  const jogosKO = [...(fases.r32||[]), ...(fases.r16||[])].sort((a,b)=>new Date(a.event_date)-new Date(b.event_date));
+  // Labels padrão quando não há confronto definido ainda
+  const labelsR32 = [
+    ['1A','2B'],['1C','2D'],['1E','2F'],['1G','2H'],
+    ['1I','2J'],['1K','2L'],['1B','2A'],['1D','2C'],
+    ['1F','2E'],['1H','2G'],['1J','2I'],['1L','2K'],
+    ['2B','1C'],['2D','1A'],['2F','1G'],['2H','1E'],
+  ];
+  // Usa apenas 8 por coluna
+  const r32Jogos = Array.from({length:16}, (_,i) => jogosKO[i] || null);
+  const labelsQF = [['V1/V2','V3/V4'],['V5/V6','V7/V8'],['V9/V10','V11/V12'],['V13/V14','V15/V16']];
+  const qfJogos = Array.from({length:4}, (_,i) => (fases.qf||[])[i] || null);
+  const sfJogos = Array.from({length:2}, (_,i) => (fases.sf||[])[i] || null);
+  const finalJogo = (fases.final||[])[0] || null;
+  const terceiroJogo = (fases.terceiro||[])[0] || null;
+
+  // ── Bloco de grupos (parte de baixo) ─────────────────────────────
+  const letrasGrupo = ['A','B','C','D','E','F','G','H','I','J','K','L'];
+  function cardGrupo(letra) {
+    const times = grupos[letra] || [];
+    const GRUPOS_FIXOS = {
+      A:['Mexico','Czechia','South Africa','South Korea'],
+      B:['Bosnia & Herzegovina','Canada','Qatar','Switzerland'],
+      C:['Brazil','Haiti','Morocco','Scotland'],
+      D:['Australia','Paraguay','Türkiye','USA'],
+      E:['Curaçao','Ecuador','Germany',"Côte d'Ivoire"],
+      F:['Japan','Netherlands','Sweden','Tunisia'],
+      G:['Belgium','Egypt','Iran','New Zealand'],
+      H:['Cabo Verde','Saudi Arabia','Spain','Uruguay'],
+      I:['France','Iraq','Norway','Senegal'],
+      J:['Algeria','Argentina','Austria','Jordan'],
+      K:['Colombia','DR Congo','Portugal','Uzbekistan'],
+      L:['Croatia','England','Ghana','Panama'],
+    };
+    const lista = times.length ? times : (GRUPOS_FIXOS[letra]||[]).map(n=>({name:n,id:null}));
+    return `<div style="background:#111;border:1px solid rgba(57,255,20,.15);border-radius:10px;width:178px;padding:8px">
+      <div style="font-family:'Bebas Neue',sans-serif;font-size:14px;color:var(--green);margin-bottom:6px;letter-spacing:.06em">GRUPO ${letra}</div>
+      ${lista.map(t=>`<div style="display:flex;align-items:center;gap:6px;padding:3px 0;border-bottom:1px solid #1a1a1a">
+        ${t.id?`<img src="${API}/img/team/${t.id}/" style="width:18px;height:18px;object-fit:contain" onerror="this.style.display='none'">`:'<span style="width:18px"></span>'}
+        <span style="font-size:11px;color:#ccc">${esc(t.name||t)}</span>
+      </div>`).join('')}
+    </div>`;
+  }
+
+  // ── Conector visual (linha) ──────────────────────────────────────
+  const conector = `<div style="width:24px;flex-shrink:0;display:flex;align-items:center;justify-content:center"><div style="height:1px;width:100%;background:rgba(57,255,20,.2)"></div></div>`;
+  const bracket_v = (h) => `<div style="width:12px;flex-shrink:0;position:relative">
+    <div style="position:absolute;top:25%;left:0;width:12px;height:50%;border-right:1px solid rgba(57,255,20,.2);border-top:1px solid rgba(57,255,20,.2);border-bottom:1px solid rgba(57,255,20,.2);border-radius:0 4px 4px 0"></div>
+  </div>`;
+
+  // ── Montar layout horizontal ─────────────────────────────────────
+  // Estrutura: [R32 esq8] [bracket] [R32 dir8] ... etc — layout clássico de chaveamento
+
+  const COL = 198; // largura coluna + gap
+  const ROW = 76;  // altura por jogo
+
+  // Posições verticais para cada rodada
+  // 16 jogos R32: 8 esq + 8 dir
+  // 8 jogos QF: alinhados entre os pares de R32
+  // 4 jogos SF: alinhados entre pares de QF
+  // 1 Final: centro
+
+  let html = `<div style="padding:20px 30px 40px;min-width:1400px;position:relative">`;
+
+  // Título
+  html += `<div style="text-align:center;margin-bottom:28px">
+    <div style="font-family:'Bebas Neue',sans-serif;font-size:32px;color:var(--green);letter-spacing:.1em">FIFA WORLD CUP 2026</div>
+    <div style="font-size:12px;color:#444;margin-top:2px">48 Seleções · 12 Grupos · EUA, México e Canadá</div>
+  </div>`;
+
+  // ── Fases de mata-mata ──────────────────────────────────────────
+  // Layout: col1=R32(0-7) | col2=QF(0-3) | col3=SF(0-1) | col4=FINAL/3º | col5=SF(2-3) | col6=QF(4-7) | col7=R32(8-15)
+  const nR32 = 16, nQF = 8, nSF = 4;
+  const rowH = 84; // px por slot de jogo
+  const totalH = nR32 * rowH;
+
+  // Calcula Y centro de cada jogo em cada rodada
+  function yCenter(round_size, idx, total_slots) {
+    const slot = total_slots / round_size;
+    return (idx + 0.5) * slot * rowH;
+  }
+
+  // Renderiza coluna de jogos
+  function renderCol(jogos_arr, labels_arr, rodada_size, total_slots, titulo) {
+    let col = `<div style="display:flex;flex-direction:column;gap:0;width:190px">`;
+    col += colLabel(titulo);
+    col += `<div style="position:relative;height:${total_slots*rowH}px">`;
+    for (let i = 0; i < rodada_size; i++) {
+      const yc = yCenter(rodada_size, i, total_slots);
+      const jogo = jogos_arr[i] || null;
+      const lbl = labels_arr ? labels_arr[i] : null;
+      col += `<div style="position:absolute;left:0;top:${yc - 40}px">
+        ${jogo ? cardJogoChav(jogo, lbl?.[0], lbl?.[1]) : cardVazio(lbl?.[0]||'?', lbl?.[1]||'?')}
+      </div>`;
+    }
+    col += `</div></div>`;
+    return col;
+  }
+
+  // Conectores SVG entre colunas
+  function svgConectores(rodada_size, prox_size, total_slots, col_w=190, gap=28) {
+    const w = gap + col_w;
+    const h = total_slots * rowH;
+    let paths = '';
+    for (let i = 0; i < rodada_size; i++) {
+      const y1 = yCenter(rodada_size, i, total_slots);
+      const par = Math.floor(i/2);
+      const y2 = yCenter(prox_size, par, total_slots);
+      paths += `<line x1="0" y1="${y1}" x2="${gap/2}" y2="${y1}" stroke="rgba(57,255,20,.18)" stroke-width="1"/>`;
+      if (i % 2 === 0) {
+        const y1b = yCenter(rodada_size, i+1, total_slots);
+        paths += `<line x1="${gap/2}" y1="${y1}" x2="${gap/2}" y2="${y1b}" stroke="rgba(57,255,20,.18)" stroke-width="1"/>`;
+        paths += `<line x1="${gap/2}" y1="${(y1+y1b)/2}" x2="${gap}" y2="${y2}" stroke="rgba(57,255,20,.18)" stroke-width="1"/>`;
+      }
+    }
+    return `<svg width="${gap}" height="${h}" style="flex-shrink:0;margin-top:28px" viewBox="0 0 ${gap} ${h}">${paths}</svg>`;
+  }
+
+  const TOTAL = 16; // slots base (16 jogos R32)
+  const r32L = r32Jogos.slice(0,8);
+  const r32R = r32Jogos.slice(8,16);
+  const labelsR32L = labelsR32.slice(0,8);
+  const labelsR32R = labelsR32.slice(8,16);
+  const qfL = qfJogos.slice(0,2);
+  const qfR = qfJogos.slice(2,4);
+  const labelsQFL = labelsQF.slice(0,2);
+  const labelsQFR = labelsQF.slice(2,4);
+
+  html += `<div style="display:flex;align-items:flex-start;gap:0;margin-bottom:32px">`;
+
+  // Esquerda: R32 → QF → SF
+  html += renderCol(r32L, labelsR32L, 8, TOTAL, 'OITAVAS');
+  html += svgConectores(8, 4, TOTAL);
+  html += renderCol(qfL, labelsQFL, 4, TOTAL, 'QUARTAS');
+  html += svgConectores(4, 2, TOTAL);
+  html += renderCol(sfJogos.slice(0,1), [['V1/V2','V3/V4']], 2, TOTAL, 'SEMIFINAL');
+  html += svgConectores(2, 1, TOTAL);
+
+  // Centro: Final + 3º lugar
+  html += `<div style="display:flex;flex-direction:column;align-items:center;width:220px;padding-top:28px">
+    <div style="height:${TOTAL*rowH*0.5 - 80}px"></div>
+    ${colLabel('🏆 FINAL')}
+    <div style="margin-bottom:8px">${finalJogo ? cardJogoChav(finalJogo,'','') : cardVazio('A definir','A definir')}</div>
+    ${finalJogo?.event_date?`<div style="font-size:10px;color:#555;margin-bottom:12px;text-align:center">📅 ${fmtData(finalJogo.event_date)} · NY</div>`:'<div style="font-size:10px;color:#333;margin-bottom:12px">07/19 · New York</div>'}
+    <div style="height:24px"></div>
+    ${colLabel('3º LUGAR')}
+    ${terceiroJogo ? cardJogoChav(terceiroJogo,'','') : cardVazio('A definir','A definir')}
+  </div>`;
+
+  // Direita: SF → QF → R32
+  html += svgConectores(2, 1, TOTAL);
+  html += renderCol(sfJogos.slice(1,2), [['V9/V10','V11/V12']], 2, TOTAL, 'SEMIFINAL');
+  html += svgConectores(4, 2, TOTAL);
+  html += renderCol(qfR, labelsQFR, 4, TOTAL, 'QUARTAS');
+  html += svgConectores(8, 4, TOTAL);
+  html += renderCol(r32R, labelsR32R, 8, TOTAL, 'OITAVAS');
+
+  html += `</div>`; // fim mata-mata
+
+  // ── Grupos A–L ──────────────────────────────────────────────────
+  html += `<div style="border-top:1px solid rgba(57,255,20,.15);padding-top:20px">`;
+  html += `<div style="font-family:'Bebas Neue',sans-serif;font-size:18px;color:var(--green);letter-spacing:.08em;margin-bottom:14px;text-align:center">GRUPOS</div>`;
+  html += `<div style="display:flex;flex-wrap:wrap;gap:10px;justify-content:center">`;
+  for (const l of letrasGrupo) { html += cardGrupo(l); }
+  html += `</div></div>`;
+
+  html += `</div>`; // fim canvas
+
+  canvas.innerHTML = html;
 }
 
 // Helper temporário — mapeamento de seleções para IDs (será resolvido pela API)
