@@ -2628,8 +2628,12 @@ function renderDestaquesEspecificos() {
   const h = histGet();
   const box = document.getElementById('dest-especificos-box');
   if (!box || !h.length) return;
+  // Deduplica por playerId (fonte da verdade) — evita mesmo jogador com times diferentes
   const seen = new Map();
-  h.forEach(e => { const k=e.playerName+(e.teamName||''); if(!seen.has(k)) seen.set(k,e); });
+  h.forEach(e => {
+    const k = e.playerId || (e.playerName+'_'+e.position);
+    if(!seen.has(k)) seen.set(k, e);
+  });
   const jogadores = [...seen.values()];
   let htmlTotal = '';
   for (const cat of DEST_CATS) {
@@ -2684,8 +2688,18 @@ async function verScoutDoDestaqueDir(playerName, teamName, playerId) {
     step3.parentElement.insertBefore(vb,step3);
   }
   vb.style.display='block';
-  if(playerId) await verStats(playerId,playerName,null,null);
-  else step3.innerHTML=`<div class="err">❌ ID do jogador não disponível. Refaça a busca.</div>`;
+  // Scroll imediato até o resultado
+  setTimeout(()=>step3.scrollIntoView({behavior:'smooth',block:'start'}),80);
+  if(playerId){
+    // Busca foto do histórico para passar ao verStats
+    const hist=histGet();
+    const entry=hist.find(e=>e.playerId==playerId);
+    const photo=entry?.photo||`${API}/img/player/${playerId}`;
+    const pos=entry?.position||null;
+    await verStats(playerId,playerName,photo,pos);
+  } else {
+    step3.innerHTML=`<div class="err">❌ ID do jogador não disponível. Refaça a busca.</div>`;
+  }
 }
 
 function voltarParaDestaques() {
@@ -3448,4 +3462,4 @@ document.addEventListener('keydown',e=>{if(e.key==='Enter'&&document.activeEleme
 
 
 </body>
-            </html>
+  </html>
