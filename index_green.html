@@ -1086,8 +1086,7 @@ async function selecionarTime(id,name,logo){
           const circleGlow   = ls==='confirmed' ? '0 0 6px #39ff14'
                              : ls==='predicted' ? '0 0 6px #ffd740' : 'none';
           return `
-          <div class="player-card" onclick="verStats(${p.id},'${esc(p.name)}','${esc(p.photo||'')}','${esc(p.position||'')}')">
-            <div style="position:relative;display:inline-block;margin-bottom:4px">
+          <div class="player-card" onclick="verStats(${p.id},'${esc(p.name)}','${esc(p.photo||'')}','${esc(p.position||'')}',null,${JSON.stringify(id)},${JSON.stringify(name)})">\n            <div style="position:relative;display:inline-block;margin-bottom:4px">
               ${p.photo
                 ?`<img src="${p.photo}" style="width:48px;height:48px;border-radius:50%;object-fit:cover;background:var(--bg4);display:block;border:2px solid var(--border)" onerror="this.style.display='none'">`
                 :`<div style="width:48px;height:48px;border-radius:50%;background:var(--bg4);border:2px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:18px">👤</div>`}
@@ -1141,12 +1140,15 @@ async function atualizarEscalacao(id, name){
   await selecionarTime(id, name);
 }
 
-async function verStats(playerId,playerName,playerPhoto,playerPos,teamNameOverride){
+async function verStats(playerId,playerName,playerPhoto,playerPos,teamNameOverride,teamIdOverride,teamNameFromCard){
+  // teamNameFromCard vem do onclick do elenco — tem prioridade sobre selTeam
+  const _effectiveTeamName = teamNameFromCard || teamNameOverride || selTeam?.name;
+  const _effectiveTeamId   = teamIdOverride   || (teamNameOverride !== undefined ? (histGet().find(e=>e.playerId==playerId)?.teamId || selTeam?.id || '') : selTeam?.id || '');
   // Esconde caixa de destaques ao entrar no scout de jogador
   const destBox=document.getElementById('dest-box');
   if(destBox) destBox.style.display='none';
-  // Se veio dos destaques (teamNameOverride definido), não regrava no histAdd
-  const _fromDest = teamNameOverride !== undefined;
+  // Se veio dos destaques (teamNameOverride definido e teamIdOverride/teamNameFromCard ausentes), não regrava no histAdd
+  const _fromDest = teamNameOverride !== undefined && !teamIdOverride && !teamNameFromCard;
 
   document.getElementById('step3').innerHTML=`<div class="card fadein"><div class="loading"><div class="spinner-wrap"><div class="spinner"></div><div class="spinner-pct" id="vs-pct">0%</div></div><p>Buscando últimos jogos de <strong>${playerName}</strong>...</p><p style="font-size:11px;margin-top:6px;opacity:0.6">Dados reais • Qualquer competição • 2026</p></div></div>`;
   setTimeout(()=>document.getElementById('step3').scrollIntoView({behavior:'smooth',block:'start'}),100);
@@ -1164,8 +1166,8 @@ async function verStats(playerId,playerName,playerPhoto,playerPos,teamNameOverri
   const cols=isGk?GK_COLS:LINE_COLS;
   // Usa teamId do histórico quando vem dos destaques, senão usa selTeam
   const _teamId = _fromDest
-    ? (histGet().find(e=>e.playerId==playerId)?.teamId || selTeam?.id || '')
-    : (selTeam?.id || '');
+    ? (histGet().find(e=>e.playerId==playerId)?.teamId || _effectiveTeamId || '')
+    : (_effectiveTeamId || '');
   const ckey=`stats_${playerId}_${_teamId}`;
   try{localStorage.removeItem('sp4_'+ckey);}catch(e){}
   try{
@@ -1213,8 +1215,8 @@ async function verStats(playerId,playerName,playerPhoto,playerPos,teamNameOverri
       let oppDisplay = g.opponent || '—';
       if (oppDisplay.includes(' × ')) {
         const parts = oppDisplay.split(' × ');
-        if (selTeam?.name || teamNameOverride) {
-          const mine = (teamNameOverride||selTeam.name||'').toLowerCase().split(' ')[0];
+        if (selTeam?.name || _effectiveTeamName) {
+          const mine = (_effectiveTeamName||selTeam?.name||'').toLowerCase().split(' ')[0];
           oppDisplay = parts[0].toLowerCase().includes(mine) ? parts[1] : parts[0];
         } else if (playerTeam) {
           // playerTeam pode estar disponível no contexto do jogador buscado
@@ -1267,7 +1269,7 @@ async function verStats(playerId,playerName,playerPhoto,playerPos,teamNameOverri
           <div class="p-avatar">${playerPhoto?`<img src="${playerPhoto}" onerror="this.parentElement.textContent='${inits}'">`:inits}</div>
           <div style="flex:1">
             <div class="p-name">${playerName}</div>
-            <div class="p-info">${teamNameOverride||selTeam?.name||'—'} · ${playerPos||'Jogador'}</div>
+            <div class="p-info">${_effectiveTeamName||'—'} · ${playerPos||'Jogador'}</div>
           </div>
           ${data.fromCache?`<span class="cache-pill">💾 Cache</span>`:''}
         </div>
@@ -1289,7 +1291,7 @@ async function verStats(playerId,playerName,playerPhoto,playerPos,teamNameOverri
         </div>
       </div>`;
     const snap={};cols.forEach(c=>{snap[c.label]=avg(c.key)??'—';});
-    if(!_fromDest) histAdd({playerName,teamName:teamNameOverride||selTeam.name,teamId:selTeam.id,position:playerPos,games:jogos.length,verdict,stats:snap,photo:playerPhoto||`${API}/img/player/${playerId}`,playerId});
+    if(!_fromDest) histAdd({playerName,teamName:_effectiveTeamName,teamId:_effectiveTeamId,position:playerPos,games:jogos.length,verdict,stats:snap,photo:playerPhoto||`${API}/img/player/${playerId}`,playerId});
     updateCache();renderDestaques();renderDestaquesEspecificos();
   }catch(e){document.getElementById('step3').innerHTML=`<div class="err">❌ ${e.message}</div>`;}
 }
@@ -3484,4 +3486,4 @@ document.addEventListener('keydown',e=>{if(e.key==='Enter'&&document.activeEleme
 
 
 </body>
-          </html>
+  </html>
