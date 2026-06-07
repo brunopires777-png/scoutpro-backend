@@ -1786,18 +1786,26 @@ function renderMtResumo(d){
     </div>`;
   }
   document.getElementById('mt-resumo').innerHTML=html;
-  // Garante status no topo — injeta diretamente no DOM
-  const _live2=ev.status==='inprogress'||ev.status==='live'||ev.is_live;
-  const _fin2=ev.status==='finished'||ev.status==='complete'||ev.status==='ended'||(ev.home_score!=null&&ev.away_score!=null&&!_live2&&ev.status!=='notstarted'&&ev.status!=='ns'&&ev.status!=='scheduled');
-  let _sb='';
-  if(_live2){const _m=ev.current_minute?ev.current_minute+"'":ev.period||'AO VIVO';_sb=`<div style="display:inline-flex;align-items:center;gap:6px;background:rgba(255,23,68,.12);border:1px solid rgba(255,23,68,.35);border-radius:10px;padding:6px 16px;font-family:'Bebas Neue',sans-serif;font-size:16px;color:var(--red);letter-spacing:.06em"><span style="width:8px;height:8px;background:var(--red);border-radius:50%;display:inline-block;animation:pulse 1s infinite"></span>${_m}</div>`;}
-  else if(_fin2){_sb=`<div style="display:inline-flex;align-items:center;gap:6px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.12);border-radius:10px;padding:6px 16px;font-family:'Bebas Neue',sans-serif;font-size:13px;color:#777;letter-spacing:.08em">✓ ENCERRADO</div>`;}
-  else{const _dt=ev.event_date?new Date(ev.event_date):null;const _h=_dt?_dt.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit',timeZone:'America/Sao_Paulo'}):'';_sb=`<div style="display:inline-flex;align-items:center;gap:6px;background:rgba(0,200,255,.08);border:1px solid rgba(0,200,255,.2);border-radius:10px;padding:6px 16px;font-family:'Bebas Neue',sans-serif;font-size:13px;color:var(--cyan);letter-spacing:.06em">⏰ EM BREVE${_h?' · '+_h:''}</div>`;}
-  const _sbDiv=document.createElement('div');
-  _sbDiv.style.cssText='text-align:center;margin-bottom:16px;margin-top:2px';
-  _sbDiv.innerHTML=_sb;
+  // Injeta stats abaixo do conteúdo do resumo
   const _resumoEl=document.getElementById('mt-resumo');
-  _resumoEl.insertBefore(_sbDiv,_resumoEl.firstChild);
+  const _statsDiv=document.createElement('div');
+  const _s=d.stats?.stats;
+  if(_s){
+    const _sh=_s.home||{},_sa=_s.away||{};
+    const _ev=d.evento;
+    const _campos=[{k:'ball_possession',l:'POSSE',sf:'%'},{k:'total_shots',l:'CHUTES'},{k:'shots_on_target',l:'NO GOL'},{k:'corner_kicks',l:'ESCANTEIOS'},{k:'fouls',l:'FALTAS'},{k:'yellow_cards',l:'AMARELOS'}];
+    _statsDiv.innerHTML=`<div style="margin-top:14px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.07);border-radius:14px;padding:14px">
+      <div style="display:flex;justify-content:space-between;margin-bottom:12px">
+        <span style="font-size:12px;font-weight:700;color:var(--cyan)">${_ev?.home_team||'Casa'}</span>
+        <span style="font-size:11px;color:#555;letter-spacing:.06em">STATS</span>
+        <span style="font-size:12px;font-weight:700;color:var(--orange)">${_ev?.away_team||'Fora'}</span>
+      </div>
+      ${_campos.map(c=>{const hv=_sh[c.k]??0,av=_sa[c.k]??0,tot=hv+av||1;
+        return `<div class="stat-row"><div class="sv" style="color:var(--cyan)">${hv}${c.sf||''}</div><div style="flex:1"><div class="sl" style="margin-bottom:3px">${c.l}</div><div style="display:flex;gap:2px"><div class="sb-wrap"><div class="sb-h" style="width:${(hv/tot*100).toFixed(0)}%"></div></div><div class="sb-wrap"><div class="sb-a" style="width:${(av/tot*100).toFixed(0)}%"></div></div></div></div><div class="sv" style="color:var(--orange)">${av}${c.sf||''}</div></div>`;
+      }).join('')}
+    </div>`;
+    _resumoEl.appendChild(_statsDiv);
+  }
 }
 
 function renderMtStats(d){
@@ -3353,4 +3361,4 @@ document.addEventListener('keydown',e=>{if(e.key==='Enter'&&document.activeEleme
 
 
 </body>
-  </html>
+</html>
