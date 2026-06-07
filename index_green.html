@@ -1801,6 +1801,18 @@ function renderMtResumo(d){
     </div>`;
   }
   document.getElementById('mt-resumo').innerHTML=html;
+  // Garante status no topo — injeta diretamente no DOM
+  const _live2=ev.status==='inprogress'||ev.status==='live'||ev.is_live;
+  const _fin2=ev.status==='finished'||ev.status==='complete'||ev.status==='ended'||(ev.home_score!=null&&ev.away_score!=null&&!_live2&&ev.status!=='notstarted'&&ev.status!=='ns'&&ev.status!=='scheduled');
+  let _sb='';
+  if(_live2){const _m=ev.current_minute?ev.current_minute+"'":ev.period||'AO VIVO';_sb=`<div style="display:inline-flex;align-items:center;gap:6px;background:rgba(255,23,68,.12);border:1px solid rgba(255,23,68,.35);border-radius:10px;padding:6px 16px;font-family:'Bebas Neue',sans-serif;font-size:16px;color:var(--red);letter-spacing:.06em"><span style="width:8px;height:8px;background:var(--red);border-radius:50%;display:inline-block;animation:pulse 1s infinite"></span>${_m}</div>`;}
+  else if(_fin2){_sb=`<div style="display:inline-flex;align-items:center;gap:6px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.12);border-radius:10px;padding:6px 16px;font-family:'Bebas Neue',sans-serif;font-size:13px;color:#777;letter-spacing:.08em">✓ ENCERRADO</div>`;}
+  else{const _dt=ev.event_date?new Date(ev.event_date):null;const _h=_dt?_dt.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit',timeZone:'America/Sao_Paulo'}):'';_sb=`<div style="display:inline-flex;align-items:center;gap:6px;background:rgba(0,200,255,.08);border:1px solid rgba(0,200,255,.2);border-radius:10px;padding:6px 16px;font-family:'Bebas Neue',sans-serif;font-size:13px;color:var(--cyan);letter-spacing:.06em">⏰ EM BREVE${_h?' · '+_h:''}</div>`;}
+  const _sbDiv=document.createElement('div');
+  _sbDiv.style.cssText='text-align:center;margin-bottom:16px;margin-top:2px';
+  _sbDiv.innerHTML=_sb;
+  const _resumoEl=document.getElementById('mt-resumo');
+  _resumoEl.insertBefore(_sbDiv,_resumoEl.firstChild);
 }
 
 function renderMtStats(d){
@@ -3356,4 +3368,4 @@ document.addEventListener('keydown',e=>{if(e.key==='Enter'&&document.activeEleme
 
 
 </body>
-</html>
+    </html>
