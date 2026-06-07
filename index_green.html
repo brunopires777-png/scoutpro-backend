@@ -1687,22 +1687,7 @@ function mtab(nome,btn){
 
 function renderMtResumo(d){
   const ev=d.evento;if(!ev)return;
-  // Header já preenchido por preencherModalHeader — começa direto no conteúdo
-  // STATUS em primeiro
-  const _live=ev.status==='inprogress'||ev.status==='live'||ev.is_live;
-  const _fin=ev.status==='finished'||ev.status==='complete'||ev.status==='ended'||(ev.home_score!=null&&ev.away_score!=null&&!_live&&ev.status!=='notstarted'&&ev.status!=='ns'&&ev.status!=='scheduled');
-  let _badgeHtml='';
-  if(_live){
-    const _min=ev.current_minute?ev.current_minute+"'":ev.period||'AO VIVO';
-    _badgeHtml=`<div style="display:inline-flex;align-items:center;gap:6px;background:rgba(255,23,68,.12);border:1px solid rgba(255,23,68,.35);border-radius:10px;padding:6px 14px;font-family:'Bebas Neue',sans-serif;font-size:15px;color:var(--red);letter-spacing:.06em"><span style="width:8px;height:8px;background:var(--red);border-radius:50%;display:inline-block;animation:pulse 1s infinite"></span>${_min}</div>`;
-  } else if(_fin){
-    _badgeHtml=`<div style="display:inline-flex;align-items:center;gap:6px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.1);border-radius:10px;padding:6px 14px;font-family:'Bebas Neue',sans-serif;font-size:13px;color:#666;letter-spacing:.08em">ENCERRADO</div>`;
-  } else {
-    const _dt=ev.event_date?new Date(ev.event_date):null;
-    const _hora=_dt?_dt.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit',timeZone:'America/Sao_Paulo'}):'';
-    _badgeHtml=`<div style="display:inline-flex;align-items:center;gap:6px;background:rgba(0,200,255,.08);border:1px solid rgba(0,200,255,.2);border-radius:10px;padding:6px 14px;font-family:'Bebas Neue',sans-serif;font-size:13px;color:var(--cyan);letter-spacing:.06em">⏰ EM BREVE${_hora?' · '+_hora:''}</div>`;
-  }
-  let html=`<div style="text-align:center;margin-bottom:14px;margin-top:4px">${_badgeHtml}</div>`;
+  let html=``;
   const goals=(d.incidents?.incidents||[]).filter(i=>i.type==='goal');
   if(goals.length){
     html+=`<div class="slabel" style="margin:12px 0 6px">⚽ GOLS</div><div class="inc-list">${goals.map(g=>`
@@ -3368,4 +3353,4 @@ document.addEventListener('keydown',e=>{if(e.key==='Enter'&&document.activeEleme
 
 
 </body>
-    </html>
+  </html>
