@@ -1141,7 +1141,7 @@ async function atualizarEscalacao(id, name){
   await selecionarTime(id, name);
 }
 
-async function verStats(playerId,playerName,playerPhoto,playerPos){
+async function verStats(playerId,playerName,playerPhoto,playerPos,teamNameOverride){
   // Esconde caixa de destaques ao entrar no scout de jogador
   const destBox=document.getElementById('dest-box');
   if(destBox) destBox.style.display='none';
@@ -1283,7 +1283,7 @@ async function verStats(playerId,playerName,playerPhoto,playerPos){
         </div>
       </div>`;
     const snap={};cols.forEach(c=>{snap[c.label]=avg(c.key)??'—';});
-    histAdd({playerName,teamName:selTeam.name,position:playerPos,games:jogos.length,verdict,stats:snap,photo:playerPhoto||`${API}/img/player/${playerId}`,playerId});
+    histAdd({playerName,teamName:teamNameOverride||selTeam.name,position:playerPos,games:jogos.length,verdict,stats:snap,photo:playerPhoto||`${API}/img/player/${playerId}`,playerId});
     updateCache();renderDestaques();renderDestaquesEspecificos();
   }catch(e){document.getElementById('step3').innerHTML=`<div class="err">❌ ${e.message}</div>`;}
 }
@@ -2686,7 +2686,7 @@ function verScoutDoDestaque(idx) {
   verScoutDoDestaqueDir(e.playerName,e.teamName||'',e.playerId||'');
 }
 
-async function verScoutDoDestaqueDir(playerName, teamName, playerId) {
+async function verScoutDoDestaqueDir(playerName, teamName_, playerId) {
   fecharDestModal2();
   document.getElementById('dest-box').style.display='none';
   document.getElementById('dest-especificos-box').style.display='none';
@@ -2706,12 +2706,13 @@ async function verScoutDoDestaqueDir(playerName, teamName, playerId) {
     el.scrollIntoView({behavior:'smooth',block:'start'});
   }, 150);
   if(playerId){
-    // Busca foto do histórico para passar ao verStats
+    // Busca foto e time do histórico para não conflitar com selTeam atual
     const hist=histGet();
     const entry=hist.find(e=>e.playerId==playerId);
     const photo=entry?.photo||`${API}/img/player/${playerId}`;
     const pos=entry?.position||null;
-    await verStats(playerId,playerName,photo,pos);
+    const teamName=entry?.teamName||teamName_||null;
+    await verStats(playerId,playerName,photo,pos,teamName);
   } else {
     step3.innerHTML=`<div class="err">❌ ID do jogador não disponível. Refaça a busca.</div>`;
   }
@@ -3477,4 +3478,4 @@ document.addEventListener('keydown',e=>{if(e.key==='Enter'&&document.activeEleme
 
 
 </body>
-          </html>
+        </html>
