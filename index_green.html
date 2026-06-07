@@ -1209,8 +1209,8 @@ async function verStats(playerId,playerName,playerPhoto,playerPos,teamNameOverri
       let oppDisplay = g.opponent || '—';
       if (oppDisplay.includes(' × ')) {
         const parts = oppDisplay.split(' × ');
-        if (selTeam?.name) {
-          const mine = (selTeam.name||'').toLowerCase().split(' ')[0];
+        if (selTeam?.name || teamNameOverride) {
+          const mine = (teamNameOverride||selTeam.name||'').toLowerCase().split(' ')[0];
           oppDisplay = parts[0].toLowerCase().includes(mine) ? parts[1] : parts[0];
         } else if (playerTeam) {
           // playerTeam pode estar disponível no contexto do jogador buscado
@@ -1263,7 +1263,7 @@ async function verStats(playerId,playerName,playerPhoto,playerPos,teamNameOverri
           <div class="p-avatar">${playerPhoto?`<img src="${playerPhoto}" onerror="this.parentElement.textContent='${inits}'">`:inits}</div>
           <div style="flex:1">
             <div class="p-name">${playerName}</div>
-            <div class="p-info">${selTeam?.name||'—'} · ${playerPos||'Jogador'}</div>
+            <div class="p-info">${teamNameOverride||selTeam?.name||'—'} · ${playerPos||'Jogador'}</div>
           </div>
           ${data.fromCache?`<span class="cache-pill">💾 Cache</span>`:''}
         </div>
@@ -2702,11 +2702,6 @@ async function verScoutDoDestaqueDir(playerName, teamName_, playerId) {
     step3.parentElement.insertBefore(vb,step3);
   }
   vb.style.display='block';
-  // Scroll até resultado — aguarda render
-  setTimeout(()=>{
-    const el = document.getElementById('scout-voltar-btn') || step3;
-    el.scrollIntoView({behavior:'smooth',block:'start'});
-  }, 150);
   if(playerId){
     // Busca foto e time do histórico para não conflitar com selTeam atual
     const hist=histGet();
@@ -2715,6 +2710,11 @@ async function verScoutDoDestaqueDir(playerName, teamName_, playerId) {
     const pos=entry?.position||null;
     const teamName=entry?.teamName||teamName_||null;
     await verStats(playerId,playerName,photo,pos,teamName);
+    // Scroll APÓS o resultado estar renderizado
+    setTimeout(()=>{
+      const vbEl=document.getElementById('scout-voltar-btn');
+      if(vbEl) vbEl.scrollIntoView({behavior:'smooth',block:'start'});
+    }, 100);
   } else {
     step3.innerHTML=`<div class="err">❌ ID do jogador não disponível. Refaça a busca.</div>`;
   }
@@ -3480,4 +3480,4 @@ document.addEventListener('keydown',e=>{if(e.key==='Enter'&&document.activeEleme
 
 
 </body>
-</html>
+        </html>
