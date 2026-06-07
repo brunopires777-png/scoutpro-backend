@@ -1145,6 +1145,8 @@ async function verStats(playerId,playerName,playerPhoto,playerPos,teamNameOverri
   // Esconde caixa de destaques ao entrar no scout de jogador
   const destBox=document.getElementById('dest-box');
   if(destBox) destBox.style.display='none';
+  // Se veio dos destaques (teamNameOverride definido), não regrava no histAdd
+  const _fromDest = teamNameOverride !== undefined;
 
   document.getElementById('step3').innerHTML=`<div class="card fadein"><div class="loading"><div class="spinner-wrap"><div class="spinner"></div><div class="spinner-pct" id="vs-pct">0%</div></div><p>Buscando últimos jogos de <strong>${playerName}</strong>...</p><p style="font-size:11px;margin-top:6px;opacity:0.6">Dados reais • Qualquer competição • 2026</p></div></div>`;
   setTimeout(()=>document.getElementById('step3').scrollIntoView({behavior:'smooth',block:'start'}),100);
@@ -1283,7 +1285,7 @@ async function verStats(playerId,playerName,playerPhoto,playerPos,teamNameOverri
         </div>
       </div>`;
     const snap={};cols.forEach(c=>{snap[c.label]=avg(c.key)??'—';});
-    histAdd({playerName,teamName:teamNameOverride||selTeam.name,position:playerPos,games:jogos.length,verdict,stats:snap,photo:playerPhoto||`${API}/img/player/${playerId}`,playerId});
+    if(!_fromDest) histAdd({playerName,teamName:teamNameOverride||selTeam.name,position:playerPos,games:jogos.length,verdict,stats:snap,photo:playerPhoto||`${API}/img/player/${playerId}`,playerId});
     updateCache();renderDestaques();renderDestaquesEspecificos();
   }catch(e){document.getElementById('step3').innerHTML=`<div class="err">❌ ${e.message}</div>`;}
 }
@@ -3478,4 +3480,4 @@ document.addEventListener('keydown',e=>{if(e.key==='Enter'&&document.activeEleme
 
 
 </body>
-        </html>
+</html>
