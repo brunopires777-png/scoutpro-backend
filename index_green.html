@@ -814,7 +814,19 @@ const DB={
   count(){let n=0;for(let i=0;i<localStorage.length;i++)if(localStorage.key(i)?.startsWith('sp4_'))n++;return n;},
   clearOld(){const rm=[];for(let i=0;i<localStorage.length;i++){const k=localStorage.key(i);if(k&&(k.startsWith('sp_')||k.startsWith('sp2_')||k.startsWith('sp3_')))rm.push(k);}rm.forEach(k=>localStorage.removeItem(k));}
 };
-function histAdd(e){try{const h=JSON.parse(localStorage.getItem('sp4_hist')||'[]');h.unshift({...e,ts:Date.now()});localStorage.setItem('sp4_hist',JSON.stringify(h.slice(0,50)));}catch(e){}}
+function histAdd(e){
+  try{
+    const h=JSON.parse(localStorage.getItem('sp4_hist')||'[]');
+    // Remove entrada anterior do mesmo jogador (por playerId ou nome+posição)
+    const key = e.playerId || (e.playerName+'_'+e.position);
+    const filtered = h.filter(x => {
+      const xkey = x.playerId || (x.playerName+'_'+x.position);
+      return xkey !== key;
+    });
+    filtered.unshift({...e,ts:Date.now()});
+    localStorage.setItem('sp4_hist',JSON.stringify(filtered.slice(0,50)));
+  }catch(e){}
+}
 function histGet(){try{return JSON.parse(localStorage.getItem('sp4_hist')||'[]');}catch(e){return[];}}
 
 async function apiFetch(path,ckey,ttl){
@@ -2688,8 +2700,11 @@ async function verScoutDoDestaqueDir(playerName, teamName, playerId) {
     step3.parentElement.insertBefore(vb,step3);
   }
   vb.style.display='block';
-  // Scroll imediato até o resultado
-  setTimeout(()=>step3.scrollIntoView({behavior:'smooth',block:'start'}),80);
+  // Scroll até resultado — aguarda render
+  setTimeout(()=>{
+    const el = document.getElementById('scout-voltar-btn') || step3;
+    el.scrollIntoView({behavior:'smooth',block:'start'});
+  }, 150);
   if(playerId){
     // Busca foto do histórico para passar ao verStats
     const hist=histGet();
@@ -3462,4 +3477,4 @@ document.addEventListener('keydown',e=>{if(e.key==='Enter'&&document.activeEleme
 
 
 </body>
-  </html>
+          </html>
