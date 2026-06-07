@@ -1162,10 +1162,14 @@ async function verStats(playerId,playerName,playerPhoto,playerPos,teamNameOverri
 
   const isGk=isGoleiro(playerPos);
   const cols=isGk?GK_COLS:LINE_COLS;
-  const ckey=`stats_${playerId}_${selTeam.id}`;
+  // Usa teamId do histórico quando vem dos destaques, senão usa selTeam
+  const _teamId = _fromDest
+    ? (histGet().find(e=>e.playerId==playerId)?.teamId || selTeam?.id || '')
+    : (selTeam?.id || '');
+  const ckey=`stats_${playerId}_${_teamId}`;
   try{localStorage.removeItem('sp4_'+ckey);}catch(e){}
   try{
-    const data=await apiFetch(`/api/player/${playerId}/stats?teamId=${selTeam.id}`,ckey,43200000);
+    const data=await apiFetch(`/api/player/${playerId}/stats?teamId=${_teamId}`,ckey,43200000);
     clearInterval(_vsIv);
     const elPct=document.getElementById('vs-pct');
     if(elPct) elPct.textContent='100%';
@@ -1285,7 +1289,7 @@ async function verStats(playerId,playerName,playerPhoto,playerPos,teamNameOverri
         </div>
       </div>`;
     const snap={};cols.forEach(c=>{snap[c.label]=avg(c.key)??'—';});
-    if(!_fromDest) histAdd({playerName,teamName:teamNameOverride||selTeam.name,position:playerPos,games:jogos.length,verdict,stats:snap,photo:playerPhoto||`${API}/img/player/${playerId}`,playerId});
+    if(!_fromDest) histAdd({playerName,teamName:teamNameOverride||selTeam.name,teamId:selTeam.id,position:playerPos,games:jogos.length,verdict,stats:snap,photo:playerPhoto||`${API}/img/player/${playerId}`,playerId});
     updateCache();renderDestaques();renderDestaquesEspecificos();
   }catch(e){document.getElementById('step3').innerHTML=`<div class="err">❌ ${e.message}</div>`;}
 }
@@ -3480,4 +3484,4 @@ document.addEventListener('keydown',e=>{if(e.key==='Enter'&&document.activeEleme
 
 
 </body>
-        </html>
+          </html>
