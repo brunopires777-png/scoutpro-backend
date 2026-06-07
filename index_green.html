@@ -2460,18 +2460,18 @@ function _renderChaveamento() {
   }
 
   // ── Taça SVG dourada ─────────────────────────────────────────
-  const taca = `<img src="https://upload.wikimedia.org/wikipedia/en/thumb/b/b8/FIFA_World_Cup_Trophy.png/250px-FIFA_World_Cup_Trophy.png"
+  const taca = `<img src="https://upload.wikimedia.org/wikipedia/commons/thumb/2/2f/FIFA_World_Cup_Trophy_2002.jpg/250px-FIFA_World_Cup_Trophy_2002.jpg"
     style="width:160px;height:auto;object-fit:contain;filter:drop-shadow(0 0 24px rgba(245,197,24,.6)) drop-shadow(0 0 8px rgba(245,197,24,.4))"
     onerror="this.outerHTML='<span style=font-size:80px>🏆</span>'"
     alt="FIFA World Cup Trophy">`;
 
   // ── Montar HTML ──────────────────────────────────────────────
-  let html = `<div style="padding:40px 40px 60px;background:transparent;min-width:1900px">`;
+  let html = `<div style="padding:40px 40px 60px;background:#0a0a0a;min-width:1900px">`;
 
   // Cabeçalho
   html += `<div style="text-align:center;margin-bottom:44px;position:relative">
     <div style="display:inline-flex;align-items:center;gap:28px">
-      <img src="https://upload.wikimedia.org/wikipedia/en/thumb/b/b8/FIFA_World_Cup_Trophy.png/250px-FIFA_World_Cup_Trophy.png"
+      <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/2/2f/FIFA_World_Cup_Trophy_2002.jpg/250px-FIFA_World_Cup_Trophy_2002.jpg"
         style="width:110px;height:auto;object-fit:contain;filter:drop-shadow(0 0 20px rgba(245,197,24,.7)) drop-shadow(0 0 6px rgba(245,197,24,.4))"
         onerror="this.outerHTML='<span style=font-size:60px>🏆</span>'" alt="Trophy">
       <div>
@@ -2479,7 +2479,7 @@ function _renderChaveamento() {
         <div style="font-family:'Bebas Neue',sans-serif;font-size:36px;color:#fff;letter-spacing:.12em;line-height:1">WORLD CUP 2026</div>
         <div style="font-size:13px;color:#555;margin-top:6px;letter-spacing:.06em">48 SELEÇÕES · 12 GRUPOS · EUA · MÉXICO · CANADÁ</div>
       </div>
-      <img src="https://upload.wikimedia.org/wikipedia/en/thumb/b/b8/FIFA_World_Cup_Trophy.png/250px-FIFA_World_Cup_Trophy.png"
+      <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/2/2f/FIFA_World_Cup_Trophy_2002.jpg/250px-FIFA_World_Cup_Trophy_2002.jpg"
         style="width:110px;height:auto;object-fit:contain;filter:drop-shadow(0 0 20px rgba(245,197,24,.7)) drop-shadow(0 0 6px rgba(245,197,24,.4))"
         onerror="this.outerHTML='<span style=font-size:60px>🏆</span>'" alt="Trophy">
     </div>
@@ -2507,7 +2507,7 @@ function _renderChaveamento() {
   const yFinal = totalH/2;
   html += `<div style="display:flex;flex-direction:column;align-items:center;flex-shrink:0;width:340px;padding-top:32px;position:relative">
     <div style="height:${yFinal - 320}px"></div>
-    <img src="https://upload.wikimedia.org/wikipedia/en/thumb/b/b8/FIFA_World_Cup_Trophy.png/250px-FIFA_World_Cup_Trophy.png"
+    <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/2/2f/FIFA_World_Cup_Trophy_2002.jpg/250px-FIFA_World_Cup_Trophy_2002.jpg"
       style="width:140px;height:auto;object-fit:contain;filter:drop-shadow(0 0 30px rgba(245,197,24,.8)) drop-shadow(0 0 10px rgba(245,197,24,.5));margin-bottom:12px"
       onerror="this.outerHTML='<span style=font-size:80px>🏆</span>'" alt="Trophy">
     <div style="font-family:'Bebas Neue',sans-serif;font-size:16px;background:linear-gradient(135deg,#fff7a0,#f5c518);-webkit-background-clip:text;-webkit-text-fill-color:transparent;letter-spacing:.12em;margin-bottom:10px;text-align:center">🏆 FINAL · 07/19 · NEW YORK</div>
@@ -2534,27 +2534,34 @@ function _renderChaveamento() {
   html += `<div style="font-family:'Bebas Neue',sans-serif;font-size:28px;text-align:center;background:linear-gradient(135deg,#fff7a0,#f5c518);-webkit-background-clip:text;-webkit-text-fill-color:transparent;letter-spacing:.1em;margin-bottom:24px">GRUPOS</div>`;
   html += `<div style="display:flex;flex-wrap:nowrap;gap:12px;justify-content:center">`;
 
+  const FLAG = {
+    'Mexico':'mx','Czechia':'cz','South Africa':'za','South Korea':'kr',
+    'Bosnia & Herzegovina':'ba','Canada':'ca','Qatar':'qa','Switzerland':'ch',
+    'Brazil':'br','Haiti':'ht','Morocco':'ma','Scotland':'gb-sct',
+    'Australia':'au','Paraguay':'py','Türkiye':'tr','USA':'us',
+    'Curaçao':'cw','Ecuador':'ec','Germany':'de',"Côte d'Ivoire":'ci',
+    'Japan':'jp','Netherlands':'nl','Sweden':'se','Tunisia':'tn',
+    'Belgium':'be','Egypt':'eg','Iran':'ir','New Zealand':'nz',
+    'Cabo Verde':'cv','Saudi Arabia':'sa','Spain':'es','Uruguay':'uy',
+    'France':'fr','Iraq':'iq','Norway':'no','Senegal':'sn',
+    'Algeria':'dz','Argentina':'ar','Austria':'at','Jordan':'jo',
+    'Colombia':'co','DR Congo':'cd','Portugal':'pt','Uzbekistan':'uz',
+    'Croatia':'hr','England':'gb-eng','Ghana':'gh','Panama':'pa',
+  };
   const letras = ['A','B','C','D','E','F','G','H','I','J','K','L'];
   for (const letra of letras) {
-    const apiTimes = grupos[letra] || [];
-    const fixo = (GRUPOS_FIXOS[letra]||[]).map(n=>({name:n,id:null}));
-    // Mescla: usa IDs da API se disponível, senão fallback pelos nomes
-    const lista = fixo.map(f => {
-      const match = apiTimes.find(t => (t.name||'').toLowerCase().includes((f.name||'').toLowerCase().split(' ')[0]) || (f.name||'').toLowerCase().includes((t.name||'').toLowerCase().split(' ')[0]));
-      return match ? {...f, id: match.id} : f;
+    const lista = (GRUPOS_FIXOS[letra]||[]).map(n=>({name:n,iso:FLAG[n]||''}));
+    let gHtml = `<div style="background:linear-gradient(160deg,#131313,#0d0d0d);border:1.5px solid rgba(245,197,24,.25);border-radius:16px;width:200px;overflow:hidden;flex-shrink:0">`;
+    gHtml += `<div style="background:linear-gradient(135deg,rgba(245,197,24,.15),rgba(245,197,24,.05));padding:10px 12px 8px;border-bottom:1px solid rgba(245,197,24,.15);text-align:center"><span style="font-family:'Bebas Neue',sans-serif;font-size:22px;background:linear-gradient(135deg,#fff7a0,#f5c518);-webkit-background-clip:text;-webkit-text-fill-color:transparent;letter-spacing:.08em">GRUPO ${letra}</span></div>`;
+    lista.forEach((t,i) => {
+      const bord = i < lista.length-1 ? 'border-bottom:1px solid rgba(255,255,255,.05)' : '';
+      const flag = t.iso
+        ? `<img src="https://flagcdn.com/w80/${t.iso}.png" style="width:52px;height:34px;object-fit:cover" onerror="this.outerHTML='<span style=font-size:22px>🏳️</span>'">`
+        : `<span style="font-size:22px">🏳️</span>`;
+      gHtml += `<div style="display:flex;align-items:center;gap:10px;padding:10px 12px;${bord}"><div style="width:52px;height:34px;flex-shrink:0;border-radius:5px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.6)">${flag}</div><span style="font-size:13px;color:#ddd;font-weight:600;line-height:1.2">${esc2(t.name)}</span></div>`;
     });
-
-    html += `<div style="background:linear-gradient(160deg,#131313,#0d0d0d);border:1.5px solid rgba(245,197,24,.25);border-radius:16px;width:200px;overflow:hidden;flex-shrink:0">
-      <div style="background:linear-gradient(135deg,rgba(245,197,24,.15),rgba(245,197,24,.05));padding:10px 12px 8px;border-bottom:1px solid rgba(245,197,24,.15);text-align:center">
-        <span style="font-family:'Bebas Neue',sans-serif;font-size:22px;background:linear-gradient(135deg,#fff7a0,#f5c518);-webkit-background-clip:text;-webkit-text-fill-color:transparent;letter-spacing:.08em">GRUPO ${letra}</span>
-      </div>
-      ${lista.map((t,i) => `<div style="display:flex;align-items:center;gap:10px;padding:10px 12px;${i<lista.length-1?'border-bottom:1px solid rgba(255,255,255,.05)':''}">
-        <div style="width:48px;height:48px;flex-shrink:0;display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,.04);border-radius:10px;overflow:hidden">
-          ${t.id ? `<img src="${API}/img/team/${t.id}/" style="width:46px;height:46px;object-fit:contain" onerror="this.outerHTML='<span style=font-size:26px>🏳️</span>'">` : `<span style="font-size:26px">🏳️</span>`}
-        </div>
-        <span style="font-size:14px;color:#ddd;font-weight:600;line-height:1.2">${esc2(t.name)}</span>
-      </div>`).join('')}
-    </div>`;
+    gHtml += `</div>`;
+    html += gHtml;
   }
 
   html += `</div></div>`;
@@ -3343,4 +3350,4 @@ document.addEventListener('keydown',e=>{if(e.key==='Enter'&&document.activeEleme
 
 
 </body>
-        </html>
+  </html>
