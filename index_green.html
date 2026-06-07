@@ -596,6 +596,9 @@ td.nd{color:#555;font-size:13px}
       <div id="player-area"></div>
     </div>
 
+    <!-- DESTAQUES ESPECÍFICOS -->
+    <div id="dest-especificos-box" style="display:none;margin-bottom:12px"></div>
+
     <!-- DESTAQUES -->
     <div class="dest-card" id="dest-box" style="display:none">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
@@ -1269,7 +1272,7 @@ async function verStats(playerId,playerName,playerPhoto,playerPos){
       </div>`;
     const snap={};cols.forEach(c=>{snap[c.label]=avg(c.key)??'—';});
     histAdd({playerName,teamName:selTeam.name,position:playerPos,games:jogos.length,verdict,stats:snap,photo:playerPhoto||`${API}/img/player/${playerId}`,playerId});
-    updateCache();renderDestaques();
+    updateCache();renderDestaques();renderDestaquesEspecificos();
   }catch(e){document.getElementById('step3').innerHTML=`<div class="err">❌ ${e.message}</div>`;}
 }
 
@@ -2609,6 +2612,88 @@ function grupoPos(pos){if(!pos)return'Outros';const p=pos.toLowerCase();if(p==='
 function posEmoji(g){return{Goleiros:'🧤',Defensores:'🛡️',Meias:'⚙️',Atacantes:'🎯',Outros:'⚽'}[g]||'⚽';}
 function toast(msg){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2200);}
 
+/* ── DESTAQUES ESPECÍFICOS ── */
+const DEST_CATS = [
+  {key:'⚽',  lbl:'Gols',             min:0.5, color:'#39ff14', emoji:'⚽'},
+  {key:'ASS', lbl:'Assistências',     min:0.5, color:'#00e5ff', emoji:'🎯'},
+  {key:'CHU', lbl:'Chutes Totais',    min:1.5, color:'#00c840', emoji:'👟'},
+  {key:'CHG', lbl:'Chutes ao Gol',    min:1.5, color:'#39ff14', emoji:'🎯'},
+  {key:'DES', lbl:'Desarmes',         min:1.5, color:'#39ff14', emoji:'🛡️'},
+  {key:'FTS', lbl:'Faltas Sofridas',  min:1.5, color:'#ffb700', emoji:'🤕'},
+  {key:'FTC', lbl:'Faltas Cometidas', min:1.5, color:'#ff9100', emoji:'⚠️'},
+  {key:'🟨',  lbl:'Cartões Amarelos', min:0.5, color:'#ffd740', emoji:'🟨'},
+];
+
+function renderDestaquesEspecificos() {
+  const h = histGet();
+  const box = document.getElementById('dest-especificos-box');
+  if (!box || !h.length) return;
+  const seen = new Map();
+  h.forEach(e => { const k=e.playerName+(e.teamName||''); if(!seen.has(k)) seen.set(k,e); });
+  const jogadores = [...seen.values()];
+  let htmlTotal = '';
+  for (const cat of DEST_CATS) {
+    const destaques = jogadores.filter(e => { const v=parseFloat(e.stats?.[cat.key]); return !isNaN(v)&&v>=cat.min; })
+      .sort((a,b)=>parseFloat(b.stats?.[cat.key]||0)-parseFloat(a.stats?.[cat.key]||0));
+    if (!destaques.length) continue;
+    const cards = destaques.map(e => {
+      const val = parseFloat(e.stats?.[cat.key]||0);
+      const total = (val*(e.games||1)).toFixed(0);
+      return `<div onclick="verScoutDoDestaqueDir('${e.playerName.replace(/'/g,"\\'")}','${(e.teamName||'').replace(/'/g,"\\'")}','${e.playerId||''}')" style="flex-shrink:0;width:110px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:12px;padding:10px 8px;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:6px">
+        <div style="width:60px;height:60px;border-radius:50%;overflow:hidden;border:2px solid ${cat.color}55">
+          ${e.photo?`<img src="${e.photo}" style="width:100%;height:100%;object-fit:cover" onerror="this.parentElement.innerHTML='<span style=font-size:26px;line-height:58px;text-align:center;display:block>⚽</span>'">`:'<span style="font-size:26px;line-height:58px;text-align:center;display:block">⚽</span>'}
+        </div>
+        <div style="font-size:11px;font-weight:700;color:#ddd;text-align:center;line-height:1.2">${e.playerName}</div>
+        <div style="font-size:10px;color:#555;text-align:center">${e.teamName||''}</div>
+        <div style="font-family:'Bebas Neue',sans-serif;font-size:22px;color:${cat.color}">${val.toFixed(1)}</div>
+        <div style="font-size:9px;color:#555">MÉD/JOGO</div>
+        <div style="font-size:10px;color:#777">${total} total · ${e.games||0}j</div>
+      </div>`;
+    }).join('');
+    htmlTotal += `<div style="margin-bottom:16px">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+        <span style="font-size:16px">${cat.emoji}</span>
+        <div>
+          <div style="font-family:'Bebas Neue',sans-serif;font-size:14px;color:${cat.color};letter-spacing:.06em">DESTAQUES EM ${cat.lbl.toUpperCase()}</div>
+          <div style="font-size:10px;color:#555">Recém pesquisados · mín ${cat.min}/jogo</div>
+        </div>
+      </div>
+      <div style="display:flex;gap:8px;overflow-x:auto;padding-bottom:6px;-webkit-overflow-scrolling:touch;scrollbar-width:none">${cards}</div>
+    </div>`;
+  }
+  if (htmlTotal) { box.innerHTML=`<div class="card" style="padding:14px">${htmlTotal}</div>`; box.style.display='block'; }
+  else box.style.display='none';
+}
+
+function verScoutDoDestaque(idx) {
+  const e=_destData[idx]; if(!e)return;
+  verScoutDoDestaqueDir(e.playerName,e.teamName||'',e.playerId||'');
+}
+
+async function verScoutDoDestaqueDir(playerName, teamName, playerId) {
+  fecharDestModal2();
+  document.getElementById('dest-box').style.display='none';
+  document.getElementById('dest-especificos-box').style.display='none';
+  const step3=document.getElementById('step3');
+  step3.style.display='block';
+  step3.innerHTML=`<div class="loading"><div class="spinner-wrap"><div class="spinner"></div></div><p>Carregando <strong>${playerName}</strong>...</p></div>`;
+  let vb=document.getElementById('scout-voltar-btn');
+  if(!vb){
+    vb=document.createElement('div'); vb.id='scout-voltar-btn'; vb.style.cssText='margin-bottom:10px';
+    vb.innerHTML=`<button onclick="voltarParaDestaques()" style="background:rgba(57,255,20,.08);border:1px solid rgba(57,255,20,.25);color:var(--green);border-radius:10px;padding:8px 18px;font-family:'Bebas Neue',sans-serif;font-size:14px;letter-spacing:.06em;cursor:pointer">← VOLTAR AOS DESTAQUES</button>`;
+    step3.parentElement.insertBefore(vb,step3);
+  }
+  vb.style.display='block';
+  if(playerId) await verStats(playerId,playerName,null,null);
+  else step3.innerHTML=`<div class="err">❌ ID do jogador não disponível. Refaça a busca.</div>`;
+}
+
+function voltarParaDestaques() {
+  const vb=document.getElementById('scout-voltar-btn'); if(vb) vb.style.display='none';
+  document.getElementById('step3').style.display='none';
+  renderDestaques(); renderDestaquesEspecificos();
+}
+
 /* ── DESTAQUES ── */
 let _destData=[];
 function abrirDestModal(idx){
@@ -2619,6 +2704,8 @@ function abrirDestModal(idx){
   // Monta as barras de stats
   // Esperamos chaves: CHU, CHG, DES, FTC, FTS, 🟨, 🟥, DEF
   const stats=[
+    {lbl:'Gols',key:'⚽',max:3,color:'#39ff14'},
+    {lbl:'Assistências',key:'ASS',max:3,color:'#00e5ff'},
     {lbl:'Chutes ao Gol',key:'CHG',max:8,color:'#39ff14'},
     {lbl:'Chutes Totais',key:'CHU',max:12,color:'#00c840'},
     {lbl:'Desarmes',key:'DES',max:10,color:'#39ff14'},
@@ -2651,7 +2738,8 @@ function abrirDestModal(idx){
     </div>
     ${stats.length?`<div class="slabel" style="margin-bottom:10px">MÉDIAS POR JOGO</div><div class="dm-stat-grid">${barsHtml}</div>`
     :`<div class="empty" style="padding:1rem"><p>Sem estatísticas detalhadas salvas.<br><small>Faça um novo scout deste jogador para ver os dados.</small></p></div>`}
-    <div style="text-align:center;margin-top:1.2rem">
+    <div style="text-align:center;margin-top:1.2rem;display:flex;flex-direction:column;align-items:center;gap:10px">
+      <button onclick="fecharDestModal2();verScoutDoDestaque(${idx})" style="background:rgba(57,255,20,.12);border:1px solid rgba(57,255,20,.4);color:var(--green);border-radius:10px;padding:10px 24px;font-family:'Bebas Neue',sans-serif;font-size:15px;letter-spacing:.06em;cursor:pointer">🔍 VER SCOUT COMPLETO</button>
       <span style="font-size:10px;color:var(--text3)">Scout realizado em ${e.ts?new Date(e.ts).toLocaleDateString('pt-BR'):'—'} · ${e.games||0} jogos</span>
     </div>`;
   document.getElementById('dest-overlay').classList.add('open');
@@ -3002,7 +3090,7 @@ async function verStatsJogadorDireto(playerId, playerName, teamName, playerPos){
 
     // Salva no histórico
     histAdd({playerName, teamName, position:playerPos, games:jogos.length, verdict, stats:snap, photo:`${API}/img/player/${playerId}`, playerId});
-    renderDestaques();
+    renderDestaques();renderDestaquesEspecificos();
 
   }catch(e){
     clearInterval(_vsdIv);
@@ -3360,4 +3448,4 @@ document.addEventListener('keydown',e=>{if(e.key==='Enter'&&document.activeEleme
 
 
 </body>
-                                                                                                                              </html>
+            </html>
