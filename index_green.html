@@ -1786,7 +1786,7 @@ function renderMtResumo(d){
     </div>`;
   }
   document.getElementById('mt-resumo').innerHTML=html;
-  // Injeta stats abaixo do conteúdo do resumo
+  // Injeta stats no TOPO do resumo
   const _resumoEl=document.getElementById('mt-resumo');
   const _statsDiv=document.createElement('div');
   const _s=d.stats?.stats;
@@ -1794,7 +1794,7 @@ function renderMtResumo(d){
     const _sh=_s.home||{},_sa=_s.away||{};
     const _ev=d.evento;
     const _campos=[{k:'ball_possession',l:'POSSE',sf:'%'},{k:'total_shots',l:'CHUTES'},{k:'shots_on_target',l:'NO GOL'},{k:'corner_kicks',l:'ESCANTEIOS'},{k:'fouls',l:'FALTAS'},{k:'yellow_cards',l:'AMARELOS'}];
-    _statsDiv.innerHTML=`<div style="margin-top:14px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.07);border-radius:14px;padding:14px">
+    _statsDiv.innerHTML=`<div style="margin-bottom:14px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.07);border-radius:14px;padding:14px">
       <div style="display:flex;justify-content:space-between;margin-bottom:12px">
         <span style="font-size:12px;font-weight:700;color:var(--cyan)">${_ev?.home_team||'Casa'}</span>
         <span style="font-size:11px;color:#555;letter-spacing:.06em">STATS</span>
@@ -1804,7 +1804,7 @@ function renderMtResumo(d){
         return `<div class="stat-row"><div class="sv" style="color:var(--cyan)">${hv}${c.sf||''}</div><div style="flex:1"><div class="sl" style="margin-bottom:3px">${c.l}</div><div style="display:flex;gap:2px"><div class="sb-wrap"><div class="sb-h" style="width:${(hv/tot*100).toFixed(0)}%"></div></div><div class="sb-wrap"><div class="sb-a" style="width:${(av/tot*100).toFixed(0)}%"></div></div></div></div><div class="sv" style="color:var(--orange)">${av}${c.sf||''}</div></div>`;
       }).join('')}
     </div>`;
-    _resumoEl.appendChild(_statsDiv);
+    _resumoEl.insertBefore(_statsDiv, _resumoEl.firstChild);
   }
 }
 
@@ -3361,4 +3361,4 @@ document.addEventListener('keydown',e=>{if(e.key==='Enter'&&document.activeEleme
 
 
 </body>
-</html>
+        </html>
