@@ -1085,7 +1085,7 @@ async function selecionarTime(id,name,logo){
           const circleBorder = ls ? 'rgba(255,255,255,0.2)' : 'rgba(255,255,255,0.3)';
           const circleGlow   = ls==='confirmed' ? '0 0 6px #39ff14'
                              : ls==='predicted' ? '0 0 6px #ffd740' : 'none';
-          return `<div class="player-card" onclick="verStats(${p.id},'${esc(p.name)}','${esc(p.photo||'')}','${esc(p.position||'')}',null,${JSON.stringify(id)},${JSON.stringify(name)})">
+          return `<div class="player-card" onclick="verStats(${p.id},'${esc(p.name)}','${esc(p.photo||'')}','${esc(p.position||'')}',null,'${esc(String(id))}','${esc(String(name||''))}')">
               <div style="position:relative;display:inline-block;margin-bottom:4px">
                 ${p.photo
                   ?`<img src="${p.photo}" style="width:48px;height:48px;border-radius:50%;object-fit:cover;background:var(--bg4);display:block;border:2px solid var(--border)" onerror="this.style.display='none'">`
