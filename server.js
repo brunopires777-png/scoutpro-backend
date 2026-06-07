@@ -347,7 +347,33 @@ app.get('/api/copa2026/chaveamento', async (req, res) => {
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
-// GET /api/debug/team?q=Palmeiras — mostra qual ID a busca retorna e de onde vem
+// DIAGNÓSTICO: buscar IDs reais das seleções da Copa 2026
+app.get('/api/debug/selecoes', async (req, res) => {
+  const selecoes = [
+    'Mexico','Czechia','South Africa','South Korea',
+    'Bosnia','Canada','Qatar','Switzerland',
+    'Brazil','Haiti','Morocco','Scotland',
+    'Australia','Paraguay','Turkey','USA',
+    'Curacao','Ecuador','Germany','Ivory Coast',
+    'Japan','Netherlands','Sweden','Tunisia',
+    'Belgium','Egypt','Iran','New Zealand',
+    'Cape Verde','Saudi Arabia','Spain','Uruguay',
+    'France','Iraq','Norway','Senegal',
+    'Algeria','Argentina','Austria','Jordan',
+    'Colombia','Congo','Portugal','Uzbekistan',
+    'Croatia','England','Ghana','Panama',
+  ];
+  const results = {};
+  await Promise.allSettled(selecoes.map(async name => {
+    try {
+      const d = await bsd('/v2/teams/', { name, limit: 3 });
+      results[name] = (d.results||[]).map(t => ({ id: t.id, name: t.name, country: t.country }));
+    } catch(e) { results[name] = [{ error: e.message }]; }
+  }));
+  res.json(results);
+});
+
+
 app.get('/api/debug/team', async (req, res) => {
   const q = (req.query.q||'').toLowerCase();
   const norm = s => (s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
