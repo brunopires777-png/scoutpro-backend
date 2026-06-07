@@ -1759,7 +1759,7 @@ app.get('/api/player/:id/stats', async (req, res) => {
         opponent: opponent||'—', score, result, data: data_jogo,
         chutes: n(g.total_shots)??n(g.shots),
         chutes_gol: n(g.shots_on_target)??n(g.shots_on_goal),
-        desarmes: n(g.total_tackle),
+        desarmes: n(g.tackle_won ?? g.tackles_won ?? g.won_tackle ?? g.total_tackle),
         ftc: n(g.fouls_committed)??n(g.fouls),
         fts: n(g.fouls_drawn)??n(g.was_fouled),
         amarelos: n(g.yellow_card)??n(g.yellow_cards),
