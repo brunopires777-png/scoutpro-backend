@@ -1085,15 +1085,16 @@ async function selecionarTime(id,name,logo){
           const circleBorder = ls ? 'rgba(255,255,255,0.2)' : 'rgba(255,255,255,0.3)';
           const circleGlow   = ls==='confirmed' ? '0 0 6px #39ff14'
                              : ls==='predicted' ? '0 0 6px #ffd740' : 'none';
-          return `
-          <div class="player-card" onclick="verStats(${p.id},'${esc(p.name)}','${esc(p.photo||'')}','${esc(p.position||'')}',null,${JSON.stringify(id)},${JSON.stringify(name)})">
-              ${p.photo
-                ?`<img src="${p.photo}" style="width:48px;height:48px;border-radius:50%;object-fit:cover;background:var(--bg4);display:block;border:2px solid var(--border)" onerror="this.style.display='none'">`
-                :`<div style="width:48px;height:48px;border-radius:50%;background:var(--bg4);border:2px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:18px">👤</div>`}
-              <div style="position:absolute;bottom:1px;right:1px;width:13px;height:13px;border-radius:50%;border:2px solid ${circleBorder};background:${circleColor};box-shadow:${circleGlow}"></div>
-            </div>
-            <div class="pc-name">${p.name}</div><div class="pc-pos">${p.position||'—'}</div>
-          </div>`;
+          return `<div class="player-card" onclick="verStats(${p.id},'${esc(p.name)}','${esc(p.photo||'')}','${esc(p.position||'')}',null,${JSON.stringify(id)},${JSON.stringify(name)})">
+              <div style="position:relative;display:inline-block;margin-bottom:4px">
+                ${p.photo
+                  ?`<img src="${p.photo}" style="width:48px;height:48px;border-radius:50%;object-fit:cover;background:var(--bg4);display:block;border:2px solid var(--border)" onerror="this.style.display='none'">`
+                  :`<div style="width:48px;height:48px;border-radius:50%;background:var(--bg4);border:2px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:18px">👤</div>`}
+                <div style="position:absolute;bottom:1px;right:1px;width:13px;height:13px;border-radius:50%;border:2px solid ${circleBorder};background:${circleColor};box-shadow:${circleGlow}"></div>
+              </div>
+              <div class="pc-name">${p.name}</div>
+              <div class="pc-pos">${p.position||'—'}</div>
+            </div>`;
         }).join('')}</div></div>`;
     });
 
@@ -3486,4 +3487,4 @@ document.addEventListener('keydown',e=>{if(e.key==='Enter'&&document.activeEleme
 
 
 </body>
-        </html>
+  </html>
