@@ -1545,4 +1545,5 @@ app.listen(PORT, () => {
   }, 14 * 60 * 1000); // a cada 14 minutos
 });
 
-app.get('/api/ping', (req, res) => res.json({ ok: true, ts: Date.now() }));
+app.get('/api/ping',   (req, res) => res.json({ ok: true, ts: Date.now() }));
+app.get('/api/status', (req, res) => res.json({ ok: true, ts: Date.now(), cache: _refCache.size }));
