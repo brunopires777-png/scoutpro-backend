@@ -1954,6 +1954,120 @@ app.get('/api/bookmakers', async (req, res) => {
 });
 
 // ─────────────────────────────────────────────
+// VALUE BETS
+// Calcula value bets cruzando odds reais com probabilidades da predição IA
+// Value = odd × probabilidade > 1.05 (margem mínima de 5%)
+// ─────────────────────────────────────────────
+app.get('/api/valuebets', async (req, res) => {
+  try {
+    const { date_from, date_to, league_id, min_value = 1.05 } = req.query;
+    const df = date_from || new Date().toISOString().slice(0,10);
+    const dt = date_to   || new Date(Date.now()+3*86400000).toISOString().slice(0,10);
+
+    const evParams = { date_from: df, date_to: dt, limit: 200, tz: 'America/Sao_Paulo' };
+    if (league_id) evParams.league = league_id;
+    const evData = await bsd('/events/', evParams);
+    const eventos = (evData.results || []).map(normEvento);
+
+    const valueBets = [];
+    await Promise.allSettled(eventos.map(async ev => {
+      try {
+        const pred = await bsd(`/predictions/${ev.id}/`);
+        const ph = pred.prob_home ?? pred.home_win_prob ?? null;
+        const pd = pred.prob_draw ?? pred.draw_prob     ?? null;
+        const pa = pred.prob_away ?? pred.away_win_prob ?? null;
+        const oh = parseFloat(ev.odds_home || 0);
+        const od = parseFloat(ev.odds_draw || 0);
+        const oa = parseFloat(ev.odds_away || 0);
+
+        const bets = [];
+        if (ph && oh > 0) { const v = oh * ph; if (v >= parseFloat(min_value)) bets.push({ mercado: 'Casa',   odd: oh, prob: (ph*100).toFixed(1), value: v.toFixed(3) }); }
+        if (pd && od > 0) { const v = od * pd; if (v >= parseFloat(min_value)) bets.push({ mercado: 'Empate', odd: od, prob: (pd*100).toFixed(1), value: v.toFixed(3) }); }
+        if (pa && oa > 0) { const v = oa * pa; if (v >= parseFloat(min_value)) bets.push({ mercado: 'Fora',   odd: oa, prob: (pa*100).toFixed(1), value: v.toFixed(3) }); }
+
+        if (bets.length) {
+          valueBets.push({
+            event_id:   ev.id,
+            home_team:  ev.home_team,
+            away_team:  ev.away_team,
+            league:     ev.league_name,
+            event_date: ev.event_date,
+            bets: bets.sort((a,b) => b.value - a.value)
+          });
+        }
+      } catch(_) {}
+    }));
+
+    valueBets.sort((a,b) => Math.max(...b.bets.map(x=>x.value)) - Math.max(...a.bets.map(x=>x.value)));
+    res.json({ valuebets: valueBets, total: valueBets.length, date_from: df, date_to: dt });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// ─────────────────────────────────────────────
+// H2H — Histórico de confrontos diretos
+// ─────────────────────────────────────────────
+app.get('/api/h2h', async (req, res) => {
+  try {
+    const { home_id, away_id, limit = 10 } = req.query;
+    if (!home_id || !away_id) return res.status(400).json({ error: 'home_id e away_id obrigatórios' });
+
+    // Busca jogos entre os dois times (ambas as direções)
+    const [r1, r2] = await Promise.allSettled([
+      bsd('/events/', { home_team_id: home_id, away_team_id: away_id, limit: 20, ordering: '-event_date' }),
+      bsd('/events/', { home_team_id: away_id, away_team_id: home_id, limit: 20, ordering: '-event_date' }),
+    ]);
+    const j1 = r1.status === 'fulfilled' ? (r1.value.results || []) : [];
+    const j2 = r2.status === 'fulfilled' ? (r2.value.results || []) : [];
+
+    const todos = [...j1, ...j2]
+      .map(normEvento)
+      .filter(ev => ev.home_score !== null && ev.away_score !== null)
+      .sort((a,b) => new Date(b.event_date) - new Date(a.event_date))
+      .slice(0, parseInt(limit));
+
+    // Stats agregadas
+    let h1w = 0, h2w = 0, draws = 0, goalsTotal = 0;
+    todos.forEach(ev => {
+      const hs = ev.home_score, as_ = ev.away_score;
+      goalsTotal += hs + as_;
+      if (hs > as_) {
+        if (String(ev.home_team_id) === String(home_id)) h1w++; else h2w++;
+      } else if (as_ > hs) {
+        if (String(ev.away_team_id) === String(home_id)) h1w++; else h2w++;
+      } else draws++;
+    });
+
+    res.json({
+      jogos: todos,
+      stats: { team1_wins: h1w, team2_wins: h2w, draws, total: todos.length, avg_goals: todos.length ? (goalsTotal/todos.length).toFixed(1) : 0 }
+    });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// ─────────────────────────────────────────────
+// PREDIÇÃO COMPLETA — todos os mercados disponíveis
+// ─────────────────────────────────────────────
+app.get('/api/predicao-completa/:eventId', async (req, res) => {
+  try {
+    const pred = await bsd(`/predictions/${req.params.eventId}/`);
+    res.json(pred);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// ─────────────────────────────────────────────
+// STANDINGS ENRIQUECIDO — tabela com xG e forma
+// ─────────────────────────────────────────────
+app.get('/api/standings-rich/:leagueId', async (req, res) => {
+  try {
+    const { season } = req.query;
+    const params = { limit: 100 };
+    if (season) params.season = season;
+    const data = await bsd(`/leagues/${req.params.leagueId}/standings/`, params);
+    res.json(data);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// ─────────────────────────────────────────────
 // START
 // ─────────────────────────────────────────────
 app.listen(PORT, () => {
