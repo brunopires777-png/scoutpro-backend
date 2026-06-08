@@ -1720,6 +1720,24 @@ app.get('/api/player/:id/stats', async (req, res) => {
 
     raw.sort((a, b) => new Date(b.event?.event_date || 0) - new Date(a.event?.event_date || 0));
 
+    // Se teamId foi passado, filtra apenas jogos desse time — evita misturar jogos da seleção
+    if (teamId) {
+      const tid = String(teamId);
+      raw = raw.filter(g => {
+        const gtid = String(g.team_id || '');
+        const ev = g.event || {};
+        const hid = String(ev.home_team_id || '');
+        const aid = String(ev.away_team_id || '');
+        // Mantém se o team_id bate, ou se o time aparece no evento
+        return gtid === tid || hid === tid || aid === tid;
+      });
+      // Se filtrou demais, usa sem filtro (teamId pode estar errado)
+      if (!raw.length) {
+        raw = data.results || [];
+        raw.sort((a, b) => new Date(b.event?.event_date || 0) - new Date(a.event?.event_date || 0));
+      }
+    }
+
     const jogos = raw.slice(0, 7).map(g => {
       const ev = g.event || {};
       const playerTeamId = String(g.team_id || teamId || '');
