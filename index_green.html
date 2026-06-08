@@ -851,7 +851,7 @@ async function checkStatus(){
 function updateCache(){const ci=document.getElementById('cache-info');if(ci)ci.innerHTML=`<span class="cache-pill">💾 ${DB.count()} em cache</span>`;}
 
 let ligasCache=[],jogoAtivo=null,jogoPeriodo='hoje',predPeriodo='hoje';
-let vbCarregados=false,vbMercado='1x2';
+
 
 // ── helper: detecta se um evento está ao vivo (BSD usa vários status diferentes)
 const LIVE_STATUSES = new Set(['inprogress','live','ongoing','in_progress','1h','2h','ht','halftime','extra_time','et','penalties']);
@@ -1601,7 +1601,7 @@ function buscarArbitroDoJogo(nome, ev){
 function filtroJogo(p,btn){
   document.querySelectorAll('#page-jogos .ftab').forEach(b=>b.classList.remove('active'));
   btn.classList.add('active');
-  if(p==='valuebets') carregarValueBetsNovo();
+  if(p==='valuebets') carregarValueBets();
   else carregarJogos(p);
 }
 
@@ -1702,9 +1702,11 @@ function limparModalTabs(){
 function mtab(nome,btn){
   document.querySelectorAll('.mtab').forEach(t=>t.classList.remove('active'));
   btn.classList.add('active');
-  ['resumo','stats','escalacao','jogadores','odds','predicao'].forEach(n=>{document.getElementById(`mt-${n}`).style.display=n===nome?'block':'none';});
+  ['resumo','stats','escalacao','jogadores','h2h','odds','predicao'].forEach(n=>{const el=document.getElementById(`mt-${n}`);if(el)el.style.display=n===nome?'block':'none';});
   const el=document.getElementById(`mt-${nome}`);
-  if(el.innerHTML||!jogoAtivo)return;
+  if(!el)return;
+  if(el.innerHTML&&el.innerHTML.trim()&&!el.innerHTML.includes('loading'))return;
+  if(!jogoAtivo)return;
   if(nome==='stats')renderMtStats(jogoAtivo);
   if(nome==='escalacao')renderMtEscalacao(jogoAtivo);
   if(nome==='jogadores')renderMtJogadores(jogoAtivo);
@@ -2062,49 +2064,6 @@ async function carregarPredicoes(){
 function filtroPred(p,btn){
   predPeriodo=p;
   btn.classList.add('active');carregarPredicoes();
-}
-
-/* ── VALUE BETS ── */
-async function carregarValueBets(){
-  vbCarregados=true;
-  const liga=document.getElementById('sel-liga-vb')?.value||'';
-  const el=document.getElementById('vb-area');
-  el.innerHTML=`<div class="loading"><div class="spinner-wrap"><div class="spinner"></div><div class="spinner-pct" id="vb-pct">0%</div></div><p>Buscando value bets reais...</p></div>`;
-  let _vbP=0;let _vbIv=null;_vbIv=setInterval(()=>{_vbP=Math.min(_vbP+(Math.random()*20+5),90);const e=document.getElementById('vb-pct');if(e)e.textContent=Math.round(_vbP)+'%';else clearInterval(_vbIv);},200);
-  try{
-    const url=`/api/value-bets?market=${vbMercado}&min_conf=70${liga?'&league_id='+liga:''}`;
-    const data=await apiFetch(url,null,0);
-    clearInterval(_vbIv);{const e=document.getElementById('vb-pct');if(e)e.textContent='100%';}
-    const items=data.results||[];
-    if(!items.length){
-      el.innerHTML=`<div class="empty"><div class="empty-icon">💰</div><p>Nenhum value bet encontrado para este filtro</p><p style="font-size:11px;margin-top:6px;color:var(--text3)">Tente "Todos" no filtro de mercado, ou aguarde novos picks</p><p style="font-size:10px;margin-top:4px;color:var(--text3)">Total retornado pela API: ${data.total||0}</p></div>`;
-      return;
-    }
-    el.innerHTML=`<div class="vb-list">`+items.map(item=>{
-      const best=item.best_odds?.[0];if(!best)return '';
-      const edge=best.edge_pct;
-      const edgeColor=edge>=10?'var(--green)':edge>=5?'var(--gold)':'var(--text2)';
-      const confCls=item.confidence>=90?'high':item.confidence>=70?'mid':'low';
-      const mktLabel={'1x2':'1X2','home':'Casa','away':'Fora','under_25':'Under 2.5','under_35':'Under 3.5'}[item.market]||item.market;
-      return `<div class="vb-card">
-        <div class="vb-conf" style="color:${item.confidence>=90?'var(--green)':item.confidence>=70?'var(--gold)':'var(--orange)'}">${item.confidence}</div>
-        <div class="vb-info">
-          <div class="vb-match">${item.home_team} vs ${item.away_team}</div>
-          <div class="vb-meta">${item.league_name||ligaNome(item.league_id)||'—'} · ${fmtHora(item.event_date)} · <span style="color:var(--cyan)">${mktLabel}: ${best.outcome_name||'—'}</span></div>
-          ${best.bookmaker_name?`<div style="font-size:10px;color:var(--text3);margin-top:2px">📚 ${best.bookmaker_name}</div>`:''}
-        </div>
-        <div class="vb-right">
-          <div class="vb-odd">${best.decimal_odds?.toFixed(2)||'—'}</div>
-          <div class="vb-edge" style="color:${edgeColor}">${edge!=null?'+'+Number(edge).toFixed(1)+'%':''}</div>
-        </div>
-      </div>`;
-    }).filter(Boolean).join('')+`</div>`;
-  }catch(e){clearInterval(_vbIv);el.innerHTML=`<div class="err">❌ ${e.message}</div>`;}
-}
-function filtroVB(m,btn){
-  vbMercado=m;
-  document.querySelectorAll('#page-valuebets .ftab').forEach(b=>b.classList.remove('active'));
-  btn.classList.add('active');carregarValueBets();
 }
 
 /* ── CLASSIFICAÇÃO ── */
@@ -3413,7 +3372,7 @@ DB.clearOld();
 // Limpa cache de busca de times para forçar nova busca com filtro correto
 try{Object.keys(localStorage).filter(k=>k.startsWith('sp4_teams_')).forEach(k=>localStorage.removeItem(k));}catch(e){}
 // ── VALUE BETS ────────────────────────────────────────────────────────────────
-async function carregarValueBetsNovo() {
+async function carregarValueBets() {
   const area = document.getElementById('jogos-area');
   area.innerHTML = `<div class="loading"><div class="spinner-wrap"><div class="spinner"></div></div><p>Calculando value bets...</p></div>`;
   try {
@@ -3612,4 +3571,4 @@ document.addEventListener('keydown',e=>{if(e.key==='Enter'&&document.activeEleme
 
 
 </body>
-        </html>
+  </html>
