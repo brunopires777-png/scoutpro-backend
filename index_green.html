@@ -2729,8 +2729,7 @@ async function verScoutDoDestaqueDir(playerName, teamName_, playerId) {
 
 function voltarParaDestaques() {
   const vb=document.getElementById('scout-voltar-btn'); if(vb) vb.style.display='none';
-  document.getElementById('step3').style.display='none';
-  renderDestaques(); renderDestaquesEspecificos();
+  window.scrollTo({top:0,behavior:'smooth'});
 }
 
 /* ── DESTAQUES ── */
@@ -3487,4 +3486,4 @@ document.addEventListener('keydown',e=>{if(e.key==='Enter'&&document.activeEleme
 
 
 </body>
-  </html>
+    </html>
