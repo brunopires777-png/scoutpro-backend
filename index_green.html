@@ -635,6 +635,7 @@ td.nd{color:#555;font-size:13px}
       <button class="ftab" onclick="filtroJogo('amanha',this)">Amanhã</button>
       <button class="ftab" onclick="filtroJogo('semana',this)">Semana</button>
       <button class="ftab" onclick="filtroJogo('ao-vivo',this)">🔴 Ao Vivo</button>
+      <button class="ftab" onclick="filtroJogo('valuebets',this)">💎 Value</button>
       <button class="lp-trigger" id="lp-jogos-btn" onclick="abrirLP('lp-jogos','carregarJogos()')">
         <span class="lp-trigger-ico">🏆</span>
         <span class="lp-trigger-text" id="lp-jogos-label">Todas as ligas</span>
@@ -766,8 +767,8 @@ td.nd{color:#555;font-size:13px}
         <button class="mtab active" onclick="mtab('resumo',this)">Resumo</button>
         <button class="mtab" onclick="mtab('escalacao',this)">Escalação</button>
         <button class="mtab" onclick="mtab('jogadores',this)">Jogadores</button>
+        <button class="mtab" onclick="mtab('h2h',this)">H2H</button>
         <button class="mtab" onclick="mtab('odds',this)">Odds</button>
-        
       </div>
     </div>
     <div class="modal-body" style="padding:16px">
@@ -775,6 +776,7 @@ td.nd{color:#555;font-size:13px}
       <div id="mt-stats" style="display:none"></div>
       <div id="mt-escalacao" style="display:none"></div>
       <div id="mt-jogadores" style="display:none"></div>
+      <div id="mt-h2h" style="display:none"></div>
       <div id="mt-odds" style="display:none"></div>
       <div id="mt-predicao" style="display:none"></div>
     </div>
@@ -1598,7 +1600,9 @@ function buscarArbitroDoJogo(nome, ev){
 
 function filtroJogo(p,btn){
   document.querySelectorAll('#page-jogos .ftab').forEach(b=>b.classList.remove('active'));
-  btn.classList.add('active');carregarJogos(p);
+  btn.classList.add('active');
+  if(p==='valuebets') carregarValueBetsNovo();
+  else carregarJogos(p);
 }
 
 /* ── MODAL ── */
@@ -1690,7 +1694,7 @@ function preencherModalHeader(d){
 }
 
 function limparModalTabs(){
-  ['mt-stats','mt-escalacao','mt-jogadores','mt-odds','mt-predicao'].forEach(id=>{const el=document.getElementById(id);el.innerHTML='';el.style.display='none';});
+  ['mt-stats','mt-escalacao','mt-jogadores','mt-h2h','mt-odds','mt-predicao'].forEach(id=>{const el=document.getElementById(id);el.innerHTML='';el.style.display='none';});
   document.getElementById('mt-resumo').style.display='block';
   document.querySelectorAll('.mtab').forEach((t,i)=>t.classList.toggle('active',i===0));
 }
@@ -1704,6 +1708,7 @@ function mtab(nome,btn){
   if(nome==='stats')renderMtStats(jogoAtivo);
   if(nome==='escalacao')renderMtEscalacao(jogoAtivo);
   if(nome==='jogadores')renderMtJogadores(jogoAtivo);
+  if(nome==='h2h')renderMtH2H(jogoAtivo);
   if(nome==='odds')renderMtOdds(jogoAtivo);
   if(nome==='predicao')renderMtPredicao(jogoAtivo);
 }
@@ -1809,7 +1814,8 @@ function renderMtResumo(d){
     </div>`;
   }
   document.getElementById('mt-resumo').innerHTML=html;
-  // Injeta stats no TOPO do resumo
+  // Enriquece com mercados extras da predição em background
+  if(ev?.id) enriquecerPredicao(ev.id, document.getElementById('mt-resumo'));
   const _resumoEl=document.getElementById('mt-resumo');
   const _statsDiv=document.createElement('div');
   const _s=d.stats?.stats;
@@ -1829,6 +1835,8 @@ function renderMtResumo(d){
     </div>`;
     _resumoEl.insertBefore(_statsDiv, _resumoEl.firstChild);
   }
+  // Mercados extras de predição no final do resumo
+  if (ev?.id) enriquecerPredicao(ev.id, _resumoEl);
 }
 
 function renderMtStats(d){
@@ -3404,9 +3412,115 @@ async function verStatsArbitro(id, nome){
 DB.clearOld();
 // Limpa cache de busca de times para forçar nova busca com filtro correto
 try{Object.keys(localStorage).filter(k=>k.startsWith('sp4_teams_')).forEach(k=>localStorage.removeItem(k));}catch(e){}
+// ── VALUE BETS ────────────────────────────────────────────────────────────────
+async function carregarValueBetsNovo() {
+  const area = document.getElementById('jogos-area');
+  area.innerHTML = `<div class="loading"><div class="spinner-wrap"><div class="spinner"></div></div><p>Calculando value bets...</p></div>`;
+  try {
+    const r = await fetch(`${API}/api/valuebets`);
+    const d = await r.json();
+    const vbs = d.valuebets || [];
+    if (!vbs.length) {
+      area.innerHTML = `<div class="empty"><div class="empty-icon">💎</div><p>Nenhuma value bet encontrada nos próximos 3 dias.<br><small style="color:#555">É necessário que a BSD tenha odds e predições disponíveis para os jogos.</small></p></div>`;
+      return;
+    }
+    let html = `<div style="padding:4px 0 10px"><div style="font-size:11px;color:#555;margin-bottom:12px;padding:0 4px">💎 Value = odd × prob IA > 1.05 · ${vbs.length} apostas encontradas</div>`;
+    vbs.forEach(ev => {
+      const dt = ev.event_date ? new Date(ev.event_date).toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit',timeZone:'America/Sao_Paulo'}) : '';
+      html += `<div class="card" style="margin-bottom:10px;cursor:pointer" onclick="abrirJogo(${ev.event_id})">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+          <span style="font-size:10px;color:#555">${ev.league||''}${dt?' · '+dt:''}</span>
+        </div>
+        <div style="font-family:'Bebas Neue',sans-serif;font-size:16px;color:#eee;margin-bottom:10px">${ev.home_team} × ${ev.away_team}</div>
+        ${ev.bets.map(b=>{
+          const val=parseFloat(b.value);
+          const color=val>=1.2?'var(--green)':val>=1.1?'var(--gold)':'var(--cyan)';
+          return `<div style="display:flex;align-items:center;justify-content:space-between;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.07);border-radius:10px;padding:8px 12px;margin-bottom:6px">
+            <div><span style="font-family:'Bebas Neue',sans-serif;font-size:14px;color:#ccc">${b.mercado}</span><span style="font-size:10px;color:#555;margin-left:8px">prob ${b.prob}%</span></div>
+            <div style="display:flex;align-items:center;gap:12px">
+              <span style="font-family:'Bebas Neue',sans-serif;font-size:16px;color:#aaa">@${b.odd}</span>
+              <span style="font-family:'Bebas Neue',sans-serif;font-size:18px;color:${color}">×${b.value}</span>
+            </div>
+          </div>`;
+        }).join('')}
+      </div>`;
+    });
+    html += `</div>`;
+    area.innerHTML = html;
+  } catch(e) { area.innerHTML = `<div class="err">❌ ${e.message}</div>`; }
+}
+
+// ── H2H ──────────────────────────────────────────────────────────────────────
+async function renderMtH2H(d) {
+  const el = document.getElementById('mt-h2h');
+  if (!el) return;
+  const ev = d?.evento;
+  if (!ev) { el.innerHTML = `<div class="empty"><p>Dados não disponíveis</p></div>`; return; }
+  el.innerHTML = `<div class="loading"><div class="spinner-wrap"><div class="spinner"></div></div><p>Buscando confrontos diretos...</p></div>`;
+  const hid = ev.home_team_id, aid = ev.away_team_id;
+  if (!hid || !aid) { el.innerHTML = `<div class="empty"><div class="empty-icon">📊</div><p>IDs dos times não disponíveis</p></div>`; return; }
+  try {
+    const r = await fetch(`${API}/api/h2h?home_id=${hid}&away_id=${aid}&limit=10`);
+    const data = await r.json();
+    const jogos = data.jogos || [], st = data.stats || {};
+    if (!jogos.length) { el.innerHTML = `<div class="empty"><div class="empty-icon">📊</div><p>Nenhum confronto direto encontrado</p></div>`; return; }
+    let html = `<div style="display:grid;grid-template-columns:1fr auto 1fr;gap:8px;align-items:center;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.07);border-radius:14px;padding:14px;margin-bottom:16px;text-align:center">
+      <div><div style="font-family:'Bebas Neue',sans-serif;font-size:12px;color:var(--cyan)">${ev.home_team}</div><div style="font-family:'Bebas Neue',sans-serif;font-size:36px;color:var(--cyan)">${st.team1_wins||0}</div><div style="font-size:10px;color:#555">VITÓRIAS</div></div>
+      <div><div style="font-family:'Bebas Neue',sans-serif;font-size:20px;color:#555">${st.draws||0}</div><div style="font-size:10px;color:#444">EMPATES</div><div style="font-size:10px;color:#444;margin-top:4px">⚽ ${st.avg_goals||0}/jogo</div></div>
+      <div><div style="font-family:'Bebas Neue',sans-serif;font-size:12px;color:var(--orange)">${ev.away_team}</div><div style="font-family:'Bebas Neue',sans-serif;font-size:36px;color:var(--orange)">${st.team2_wins||0}</div><div style="font-size:10px;color:#555">VITÓRIAS</div></div>
+    </div>
+    <div class="slabel" style="margin-bottom:10px">ÚLTIMOS ${jogos.length} CONFRONTOS</div>`;
+    jogos.forEach(j => {
+      const dt = j.event_date ? new Date(j.event_date).toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',year:'2-digit',timeZone:'America/Sao_Paulo'}) : '';
+      const homeIsT1 = String(j.home_team_id)===String(hid);
+      const t1s = homeIsT1?j.home_score:j.away_score, t2s = homeIsT1?j.away_score:j.home_score;
+      const t1n = homeIsT1?j.home_team:j.away_team, t2n = homeIsT1?j.away_team:j.home_team;
+      const t1w = t1s>t2s, t2w = t2s>t1s;
+      html += `<div style="display:flex;align-items:center;justify-content:space-between;padding:9px 0;border-bottom:1px solid rgba(255,255,255,.05)">
+        <span style="font-size:12px;color:${t1w?'var(--cyan)':'#666'};flex:1;font-weight:${t1w?700:400}">${t1n}</span>
+        <div style="text-align:center;padding:0 10px;flex-shrink:0">
+          <span style="font-family:'Bebas Neue',sans-serif;font-size:16px;color:${t1w?'var(--cyan)':t2w?'var(--orange)':'#aaa'}">${t1s??'?'} - ${t2s??'?'}</span>
+          <div style="font-size:9px;color:#444">${dt}</div>
+        </div>
+        <span style="font-size:12px;color:${t2w?'var(--orange)':'#666'};flex:1;text-align:right;font-weight:${t2w?700:400}">${t2n}</span>
+      </div>`;
+    });
+    el.innerHTML = html;
+  } catch(e) { el.innerHTML = `<div class="err">❌ ${e.message}</div>`; }
+}
+
+// ── MERCADOS EXTRAS DE PREDIÇÃO ───────────────────────────────────────────────
+async function enriquecerPredicao(eventId, containerEl) {
+  if (!eventId || !containerEl) return;
+  try {
+    const r = await fetch(`${API}/api/predicao-completa/${eventId}`);
+    const pred = await r.json();
+    const extras = [];
+    const add = (lbl, val, raw=false) => { if(val!=null&&!isNaN(parseFloat(val))) extras.push({lbl, val: raw ? val : (parseFloat(val)*100).toFixed(1)+'%'}); };
+    add('Over 1.5', pred.over_15_prob ?? pred.markets?.over_15);
+    add('Over 3.5', pred.over_35_prob ?? pred.markets?.over_35);
+    add('Ambas Marcam', pred.btts_prob ?? pred.markets?.btts);
+    add('1º Gol Casa', pred.first_goal_home ?? pred.markets?.first_goal_home);
+    add('1º Gol Fora', pred.first_goal_away ?? pred.markets?.first_goal_away);
+    if (pred.most_likely_score || pred.correct_score) extras.push({lbl:'Placar provável', val: pred.most_likely_score||pred.correct_score});
+    if (!extras.length) return;
+    const div = document.createElement('div');
+    div.style.cssText = 'margin-top:12px';
+    div.innerHTML = `<div class="slabel" style="margin-bottom:8px">MERCADOS EXTRAS</div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px">
+        ${extras.map(e=>`<div style="background:rgba(0,200,255,.06);border:1px solid rgba(0,200,255,.15);border-radius:10px;padding:8px 12px;text-align:center;min-width:80px">
+          <div style="font-size:9px;color:#666;margin-bottom:3px;text-transform:uppercase;letter-spacing:.04em">${e.lbl}</div>
+          <div style="font-family:'Bebas Neue',sans-serif;font-size:16px;color:var(--cyan)">${e.val}</div>
+        </div>`).join('')}
+      </div>`;
+    containerEl.appendChild(div);
+  } catch(_) {}
+}
+
 checkStatus();
 carregarLigas();
 renderDestaques();
+renderDestaquesEspecificos();
 setInterval(checkStatus,30000);
 document.addEventListener('keydown',e=>{if(e.key==='Enter'&&document.activeElement.id==='inp-team')buscarTime();if(e.key==='Enter'&&document.activeElement.id==='inp-arbitro')buscarArbitro();});
 </script>
@@ -3498,4 +3612,4 @@ document.addEventListener('keydown',e=>{if(e.key==='Enter'&&document.activeEleme
 
 
 </body>
-</html>
+        </html>
