@@ -2303,7 +2303,17 @@ function _initChaveamentoPanZoom() {
   const vp = document.getElementById('chaveamento-viewport');
   const canvas = document.getElementById('chaveamento-canvas');
   if (!vp || !canvas) return;
-  let scale = 0.72, tx = 20, ty = 20;
+  let scale = 0.45, tx = 0, ty = 20;
+  // Centraliza horizontalmente após render
+  function centrarCanvas() {
+    const vp = document.getElementById('chaveamento-viewport');
+    const cv = document.getElementById('chaveamento-canvas');
+    if (!vp || !cv) return;
+    const vpW = vp.clientWidth;
+    const cvW = cv.scrollWidth * scale;
+    tx = Math.max(10, (vpW - cvW) / 2);
+    applyTransform();
+  }
   let dragging = false, lastX = 0, lastY = 0;
   let lastDist = 0;
 
@@ -2511,13 +2521,13 @@ function _renderChaveamento() {
   // Cabeçalho
   html += `<div style="text-align:center;margin-bottom:44px;position:relative">
     <div style="display:inline-flex;align-items:center;gap:28px">
-      <img src="${TACA_URI}" style="width:110px;height:auto;object-fit:contain;filter:drop-shadow(0 0 22px rgba(245,197,24,.65)) drop-shadow(0 0 8px rgba(245,197,24,.35))" alt="Trophy">🏆</span>'" alt="Trophy">
+      <img src="${TACA_URI}" style="width:110px;height:auto;object-fit:contain;filter:drop-shadow(0 0 22px rgba(245,197,24,.65)) drop-shadow(0 0 8px rgba(245,197,24,.35))" alt="Trophy">
       <div>
         <div style="font-family:'Bebas Neue',sans-serif;font-size:52px;background:linear-gradient(135deg,#fff7a0,#f5c518,#d4a017);-webkit-background-clip:text;-webkit-text-fill-color:transparent;letter-spacing:.08em;line-height:1">FIFA</div>
         <div style="font-family:'Bebas Neue',sans-serif;font-size:36px;color:#fff;letter-spacing:.12em;line-height:1">WORLD CUP 2026</div>
         <div style="font-size:13px;color:#555;margin-top:6px;letter-spacing:.06em">48 SELEÇÕES · 12 GRUPOS · EUA · MÉXICO · CANADÁ</div>
       </div>
-      <img src="${TACA_URI}" style="width:110px;height:auto;object-fit:contain;filter:drop-shadow(0 0 22px rgba(245,197,24,.65)) drop-shadow(0 0 8px rgba(245,197,24,.35))" alt="Trophy">🏆</span>'" alt="Trophy">
+      <img src="${TACA_URI}" style="width:110px;height:auto;object-fit:contain;filter:drop-shadow(0 0 22px rgba(245,197,24,.65)) drop-shadow(0 0 8px rgba(245,197,24,.35))" alt="Trophy">
     </div>
   </div>`;
 
@@ -2543,7 +2553,7 @@ function _renderChaveamento() {
   const yFinal = totalH/2;
   html += `<div style="display:flex;flex-direction:column;align-items:center;flex-shrink:0;width:340px;padding-top:32px;position:relative">
     <div style="height:${yFinal - 320}px"></div>
-    <img src="${TACA_URI}" style="width:140px;height:auto;object-fit:contain;filter:drop-shadow(0 0 22px rgba(245,197,24,.65)) drop-shadow(0 0 8px rgba(245,197,24,.35))" alt="Trophy">🏆</span>'" alt="Trophy">
+    <img src="${TACA_URI}" style="width:140px;height:auto;object-fit:contain;filter:drop-shadow(0 0 22px rgba(245,197,24,.65)) drop-shadow(0 0 8px rgba(245,197,24,.35))" alt="Trophy">
     <div style="font-family:'Bebas Neue',sans-serif;font-size:16px;background:linear-gradient(135deg,#fff7a0,#f5c518);-webkit-background-clip:text;-webkit-text-fill-color:transparent;letter-spacing:.12em;margin-bottom:10px;text-align:center">🏆 FINAL · 07/19 · NEW YORK</div>
     <div style="transform:scale(1.05);transform-origin:top center">
       ${finalJogo ? cardJogo(finalJogo,'','') : cardVazio('A definir','A definir')}
@@ -2601,6 +2611,8 @@ function _renderChaveamento() {
   html += `</div></div>`;
   html += `</div>`; // fim canvas
   canvas.innerHTML = html;
+  // Centraliza após render
+  setTimeout(centrarCanvas, 50);
 }
 // Helper temporário — mapeamento de seleções para IDs (será resolvido pela API)
 function buscarIdSeleção(nome){return '';}
@@ -3486,4 +3498,4 @@ document.addEventListener('keydown',e=>{if(e.key==='Enter'&&document.activeEleme
 
 
 </body>
-    </html>
+</html>
