@@ -71,29 +71,7 @@ function dayOffset(n) {
 }
 
 
-// Debug: ver estrutura raw do endpoint v2 de value bets
-app.get('/api/debug/value-bets', async (req, res) => {
-  try {
-    const r = await fetch('https://sports.bzzoiro.com/api/v2/value-bets/?limit=3', {
-      headers: { Authorization: `Token ${BSD_TOKEN}` }
-    });
-    const txt = await r.text();
-    console.log('[debug/value-bets] status:', r.status, 'body:', txt.slice(0, 500));
-    res.json({ status: r.status, keys: Object.keys(JSON.parse(txt)||{}), sample: txt.slice(0,800) });
-  } catch(e) { res.status(500).json({ error: e.message }); }
-});
-// ─────────────────────────────────────────────
-// STATUS / HEALTH
-// ─────────────────────────────────────────────
-app.get('/api/status', (req, res) => {
-  res.json({
-    status: 'online',
-    app: 'Scout Pro',
-    versao: '2.0',
-    servidor: 'ativo',
-    timestamp: new Date().toISOString()
-  });
-});
+
 
 // ─────────────────────────────────────────────
 // LIGAS
@@ -844,522 +822,6 @@ app.get('/api/predicoes', async (req, res) => {
 
 // ─────────────────────────────────────────────
 // VALUE BETS — endpoint real da BSD v2
-// GET /api/v2/value-bets/ com edge, confidence e bookmaker reais
-// ─────────────────────────────────────────────
-app.get('/api/value-bets', async (req, res) => {
-  try {
-    const { market, league_id, min_conf = 70, limit = 50 } = req.query;
-
-    const qs = new URLSearchParams({ limit: limit || 100 });
-    if (market && market !== '1x2') qs.set('market', market);
-    if (league_id) qs.set('league_id', league_id);
-
-    // Tenta endpoint v2 primeiro
-    let raw = [];
-    try {
-      const r2 = await fetch(
-        `https://sports.bzzoiro.com/api/v2/value-bets/?${qs}`,
-        { headers: { Authorization: `Token ${BSD_TOKEN}` } }
-      );
-      const d2 = await r2.json();
-      raw = d2.results || d2.value_bets || d2.bets || d2.data || [];
-      console.log('[value-bets] v2 response keys:', Object.keys(d2));
-      console.log('[value-bets] v2 raw count:', raw.length);
-      if (raw.length > 0) console.log('[value-bets] v2 first item keys:', Object.keys(raw[0]));
-    } catch(e2) {
-      console.log('[value-bets] v2 falhou:', e2.message);
-    }
-
-    // Fallback: predictions com confiança alta + odds reais
-    if (!raw.length) {
-      console.log('[value-bets] usando fallback via predictions...');
-      const qs2 = new URLSearchParams({
-        date_from: today(), date_to: dayOffset(7), limit: 100, tz: 'America/Sao_Paulo'
-      });
-      if (league_id) qs2.set('league', league_id);
-      const d1 = await fetch(
-        `https://sports.bzzoiro.com/api/predictions/?${qs2}`,
-        { headers: { Authorization: `Token ${BSD_TOKEN}` } }
-      ).then(r => r.json()).catch(() => ({}));
-
-      raw = (d1.results || [])
-        .filter(p => {
-          const mr = (p.markets||p.predictions||{}).match_result || {};
-          return Math.max(mr.prob_home||0, mr.prob_draw||0, mr.prob_away||0) >= 55;
-        })
-        .map(p => {
-          const ev = p.event || {};
-          const mr = (p.markets||p.predictions||{}).match_result || {};
-          const ph=mr.prob_home||0, pd=mr.prob_draw||0, pa=mr.prob_away||0;
-          const maxP = Math.max(ph,pd,pa);
-          const outcome = ph>=pd&&ph>=pa?'home':pa>=ph&&pa>=pd?'away':'draw';
-          const outLabel = {home:'Casa',away:'Fora',draw:'Empate'}[outcome];
-          const odd = {home:ev.odds_home,away:ev.odds_away,draw:ev.odds_draw}[outcome];
-          const recs = p.recommendations || {};
-          return {
-            event: ev,
-            confidence: Math.round((p.model?.confidence||maxP/100)*100),
-            market: market||'1x2',
-            outcome: outLabel,
-            odd: odd||null,
-            bookmaker: 'Consenso BSD',
-            edge_pct: null,
-            fair_odd: null,
-          };
-        });
-      console.log('[value-bets] fallback predictions:', raw.length);
-    }
-
-    let results = raw;
-
-    // Normaliza para o formato que o frontend espera
-    const normalized = results
-      .filter(vb => {
-        // Aceita qualquer resultado com pelo menos um campo reconhecível
-        return vb && (vb.confidence != null || vb.odd != null || vb.odds != null || vb.market != null);
-      })
-      .map(vb => {
-        const ev  = vb.event || vb.match || {};
-        const conf = vb.confidence ?? vb.conf ?? vb.model_confidence ?? 0;
-        const edge = vb.edge_pct   ?? vb.edge ?? vb.value_pct ?? null;
-        // market/outcome
-        const market_name = vb.market || vb.market_key || vb.bet_type || '1x2';
-        const outcome = vb.outcome  || vb.pick || vb.outcome_name || vb.bet || '—';
-        const odds    = vb.odd      || vb.decimal_odds || vb.odds || null;
-        const bookmaker = vb.bookmaker || vb.bookmaker_name || vb.bookmaker_slug || 'Mercado';
-        const fair_odd  = vb.fair_odd  || null;
-
-        return {
-          home_team:   ev.home_team  || vb.home_team  || '—',
-          away_team:   ev.away_team  || vb.away_team  || '—',
-          league_name: ev.league_name || vb.league_name || '—',
-          league_id:   ev.league_id  || vb.league_id  || null,
-          event_date:  ev.event_date  || vb.event_date || null,
-          confidence:  Math.round(conf),
-          market:      market_name,
-          best_odds: [{
-            outcome_name:   outcome,
-            decimal_odds:   odds ? Number(odds) : null,
-            bookmaker_name: bookmaker,
-            edge_pct:       edge,
-            fair_odd:       fair_odd
-          }]
-        };
-      });
-
-    console.log(`[value-bets] raw: ${raw.length}, normalized: ${normalized.length}`);
-    res.json({ results: normalized, total: normalized.length });
-  } catch (e) {
-    console.error('[value-bets] erro:', e.message);
-    res.status(500).json({ error: e.message });
-  }
-});
-
-// Polymarket (predição de mercado)
-app.get('/api/polymarket', async (req, res) => {
-  try {
-    const { league_id, event_id } = req.query;
-    const data = await bsd('/odds/', {
-      // polymarket via endpoint principal filtrado
-      league_id,
-      event_id,
-      limit: 50
-    });
-    res.json(data);
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
-});
-
-// ─────────────────────────────────────────────
-// ROTAS DE COMPATIBILIDADE (frontend original)
-// ─────────────────────────────────────────────
-
-// Função reutilizável de busca de time — usada por /api/teams e /api/jogadores
-// Fontes: 1) API v2 /api/v2/teams/?name= (busca parcial nativa), 2) eventos recentes, 3) standings
-async function buscarTimePorNome(q) {
-  const norm = s => (s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
-  const term = norm(q);
-  const seen = new Map();
-
-  // 1ª fonte: API de times da BSD com busca nativa (mais abrangente)
-  try {
-    const apiTeams = await fetch(
-      `https://sports.bzzoiro.com/api/v2/teams/?name=${encodeURIComponent(q)}&limit=20`,
-      { headers: { Authorization: `Token ${BSD_TOKEN}` } }
-    ).then(r => r.json());
-    (apiTeams.results || []).forEach(t => {
-      if (t.id && !seen.has(t.id))
-        seen.set(t.id, { id: t.id, name: t.name, country: t.country || '' });
-    });
-  } catch(_) {}
-
-  // 2ª fonte: eventos recentes (complementa com times que tenham jogos)
-  if (seen.size < 3) {
-    try {
-      const dateFrom = new Date(Date.now()-60*86400000).toISOString().slice(0,10);
-      const dateTo   = new Date(Date.now()+14*86400000).toISOString().slice(0,10);
-      const evData = await fetch(
-        `https://sports.bzzoiro.com/api/events/?date_from=${dateFrom}&date_to=${dateTo}&limit=300`,
-        { headers: { Authorization: `Token ${BSD_TOKEN}` } }
-      ).then(r => r.json());
-      (evData.results || []).forEach(ev => {
-        const hid = ev.home_team_id || ev.home_team_obj?.id;
-        const aid = ev.away_team_id || ev.away_team_obj?.id;
-        if ((n=>n.includes(term)||n.split(/\s+/).some(w=>w.startsWith(term)))(norm(ev.home_team||'')) && hid && !seen.has(hid))
-          seen.set(hid, { id: hid, name: ev.home_team, country: ev.league?.country||'' });
-        if ((n=>n.includes(term)||n.split(/\s+/).some(w=>w.startsWith(term)))(norm(ev.away_team||'')) && aid && !seen.has(aid))
-          seen.set(aid, { id: aid, name: ev.away_team, country: ev.league?.country||'' });
-      });
-    } catch(_) {}
-  }
-
-  return Array.from(seen.values()).slice(0,15);
-}
-
-app.get('/api/teams', async (req, res) => {
-  try {
-    const { q } = req.query;
-    if (!q) return res.status(400).json({ error: 'Parâmetro q obrigatório' });
-    const norm = s => (s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
-    const term = norm(q);
-    const seen = new Map();
-
-    // 1ª fonte: API de times da BSD com busca nativa (mais abrangente)
-    try {
-      const apiTeams = await fetch(
-        `https://sports.bzzoiro.com/api/v2/teams/?name=${encodeURIComponent(q)}&limit=20`,
-        { headers: { Authorization: `Token ${BSD_TOKEN}` } }
-      ).then(r => r.json());
-      (apiTeams.results || []).forEach(t => {
-        if (t.id && !seen.has(t.id))
-          seen.set(t.id, { id: t.id, name: t.name, country: t.country || '' });
-      });
-    } catch(_) {}
-
-    // 2ª fonte: eventos recentes (complementa com times que tenham jogos)
-    if (seen.size < 3) {
-      const dateFrom = new Date(Date.now()-60*86400000).toISOString().slice(0,10);
-      const dateTo   = new Date(Date.now()+14*86400000).toISOString().slice(0,10);
-      const evData = await fetch(
-        `https://sports.bzzoiro.com/api/events/?date_from=${dateFrom}&date_to=${dateTo}&limit=300`,
-        { headers: { Authorization: `Token ${BSD_TOKEN}` } }
-      ).then(r => r.json());
-      (evData.results || []).forEach(ev => {
-        const hid = ev.home_team_id || ev.home_team_obj?.id;
-        const aid = ev.away_team_id || ev.away_team_obj?.id;
-        if ((n=>n.includes(term)||n.split(/\s+/).some(w=>w.startsWith(term)))(norm(ev.home_team||'')) && hid && !seen.has(hid))
-          seen.set(hid, { id: hid, name: ev.home_team, country: ev.league?.country || ev.home_team_obj?.country || '' });
-        if ((n=>n.includes(term)||n.split(/\s+/).some(w=>w.startsWith(term)))(norm(ev.away_team||'')) && aid && !seen.has(aid))
-          seen.set(aid, { id: aid, name: ev.away_team, country: ev.league?.country || ev.away_team_obj?.country || '' });
-      });
-    }
-
-    // 3ª fonte: standings (fallback se ainda sem resultado)
-    if (seen.size === 0) {
-      const ligasData = await fetch('https://sports.bzzoiro.com/api/leagues/', {
-        headers: { Authorization: `Token ${BSD_TOKEN}` }
-      }).then(r => r.json());
-      for (const liga of (ligasData.results||[])) {
-        try {
-          const std = await fetch(`https://sports.bzzoiro.com/api/leagues/${liga.id}/standings/`, {
-            headers: { Authorization: `Token ${BSD_TOKEN}` }
-          }).then(r => r.json());
-          for (const s of (std.standings||[])) {
-            const nome = s.team||s.team_name||'';
-            const tid  = s.team_id||s.id;
-            if (norm(nome).includes(term) && tid && !seen.has(tid))
-              seen.set(tid, { id: tid, name: nome, country: liga.country||'' });
-          }
-          if (seen.size >= 5) break;
-        } catch(_) {}
-      }
-    }
-
-    console.log(`Teams search "${q}": achou ${seen.size} via eventos/standings`);
-    res.json({ teams: Array.from(seen.values()).slice(0,15) });
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
-});
-
-app.get('/api/teams-all', async (req, res) => res.json({ results: [], next: null }));
-
-// ─────────────────────────────────────────────
-// ELENCO DO TIME  →  /api/squad/:id
-// Usa exclusivamente BSD v2 via helper bsd()
-app.get('/api/squad/:id', async (req, res) => {
-  try {
-    const teamId = String(req.params.id);
-    let players  = [];
-    let lineupStatus    = null;
-    let lineupPlayerIds = new Set();
-    let confirmedIds    = new Set();
-
-    // ── FASE 1: ELENCO via /teams/{id}/squad/ (v2) ─────────────────────
-    // Valida com lineup: se nenhum jogador do squad aparece na próxima lineup, BSD tem bug de ID
-    let squadFromEndpoint = [];
-    try {
-      const sq = await bsd(`/teams/${teamId}/squad/`);
-      const list = sq.players || sq.squad || sq.results || [];
-      if (list.length > 0) {
-        squadFromEndpoint = list.map(p => ({
-          id:            String(p.id),
-          name:          p.name || p.display_name || '—',
-          position:      p.position || '—',
-          jersey_number: String(p.jersey_number || ''),
-          photo:         `https://sports.bzzoiro.com/img/player/${p.id}/`
-        }));
-        console.log(`[squad] via /teams/squad: ${squadFromEndpoint.length}`);
-      }
-    } catch(_) {}
-
-    // Squad v2 é confiável — usa direto se retornou dados
-    if (squadFromEndpoint.length > 0) {
-      players = squadFromEndpoint;
-      console.log(`[squad] squad OK: ${players.length} jogadores`);
-    }
-
-    // ── FASE 1B: fallback via /events/?team_id= (v2 suporta team_id) ───
-    if (!players.length) {
-      try {
-        const df2 = new Date(Date.now()-90*86400000).toISOString().slice(0,10);
-        const dt2 = new Date().toISOString().slice(0,10);
-        // v2 tem team_id como filtro real
-        const evData = await bsd('/events/', { team_id: teamId, date_from: df2, date_to: dt2, limit: 5, ordering: '-event_date' });
-        const teamEvs = (evData.results||[]).slice(0,5);
-        console.log(`[squad] eventos v2 team_id=${teamId}: ${teamEvs.length}`);
-
-        const pMap = new Map();
-        for (const ev of teamEvs) {
-          try {
-            // lineups v2 — retorna 200 sempre, lineup_status indica o estado
-            const lu = await bsd(`/events/${ev.id}/lineups/`);
-            if (lu.lineup_status === 'unavailable' || !lu.lineups) continue;
-
-            const isH   = String(ev.home_team_id) === teamId;
-            const side  = isH ? lu.lineups.home : lu.lineups.away;
-            const list2 = [...(side?.players||[]), ...(side?.substitutes||[])];
-
-            for (const p of list2) {
-              const pid = String(p.id || '');
-              if (!pid || pMap.has(pid)) continue;
-              pMap.set(pid, {
-                id:            pid,
-                name:          p.name || p.short_name || '—',
-                position:      p.position || '—',
-                jersey_number: String(p.jersey_number || ''),
-                photo:         `https://sports.bzzoiro.com/img/player/${pid}/`
-              });
-            }
-            if (pMap.size >= 18) break;
-          } catch(_) {}
-        }
-        players = [...pMap.values()];
-        console.log(`[squad] via lineups fallback: ${players.length}`);
-      } catch(e) { console.log('[squad] fallback err:', e.message); }
-    }
-
-    // ── FASE 2: LINEUP para círculos ────────────────────────────────────
-    // Busca próximo jogo com lineup disponível
-    try {
-      const df  = today();
-      const dt  = dayOffset(10);
-      // v2: /teams/{id}/fixtures/ é o endpoint correto para jogos do time
-      const fixturesFut  = await bsd(`/teams/${teamId}/fixtures/`, { date_from: df, date_to: dt, limit: 5 });
-      const fixturesPast = await bsd(`/teams/${teamId}/fixtures/`, { date_from: new Date(Date.now()-14*86400000).toISOString().slice(0,10), date_to: df, status: 'finished', limit: 5 });
-      const candidates   = [...(fixturesFut.results||[]), ...(fixturesPast.results||[])];
-
-      for (const ev of candidates) {
-        try {
-          const lu = await bsd(`/events/${ev.id}/lineups/`);
-          if (lu.lineup_status === 'unavailable' || !lu.lineups) continue;
-
-          const isH  = String(ev.home_team_id) === teamId;
-          const side = isH ? lu.lineups.home : lu.lineups.away;
-          const list = [...(side?.players||[]), ...(side?.substitutes||[])];
-          if (!list.length) continue;
-
-          const es    = (ev.status||'').toLowerCase();
-          const LIVES = new Set(['inprogress','1st_half','2nd_half','halftime','extra_time','penalties']);
-          const isLive = LIVES.has(es) || LIVES.has(ev.period||'');
-          const isFin  = es==='finished' || ev.period==='FT';
-          lineupStatus = (lu.lineup_status==='confirmed' || isLive || isFin) ? 'confirmed' : 'predicted';
-
-          list.forEach((p,i) => {
-            const pid = String(p.id||'');
-            if (!pid) return;
-            lineupPlayerIds.add(pid);
-            if (lineupStatus==='confirmed' && i<11) confirmedIds.add(pid);
-          });
-
-          // Fallback por nome se IDs não cruzam com elenco
-          const idsInSquad = new Set(players.map(p=>p.id));
-          if ([...lineupPlayerIds].filter(p=>idsInSquad.has(p)).length === 0) {
-            const norm = s=>(s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim();
-            players.forEach(p => {
-              const pn = norm(p.name), pt = pn.split(/\s+/).filter(t=>t.length>=3);
-              const idx2 = list.findIndex(lp=>{
-                const lt = norm(lp.name||lp.short_name||'').split(/\s+/).filter(t=>t.length>=3);
-                return lt.some(l=>pt.some(pp=>l===pp||l.startsWith(pp)||pp.startsWith(l)));
-              });
-              if (idx2>=0) { lineupPlayerIds.add(p.id); if(lineupStatus==='confirmed'&&idx2<11) confirmedIds.add(p.id); }
-            });
-          }
-
-          console.log(`[squad] lineup: ${ev.home_team}x${ev.away_team} status=${lineupStatus} n=${lineupPlayerIds.size}`);
-          break;
-        } catch(_) {}
-      }
-    } catch(e) { console.log('[squad] lineup err:', e.message); }
-
-    players = players.map(p => ({
-      ...p,
-      lineup_status: confirmedIds.has(String(p.id))    ? 'confirmed'
-                   : lineupPlayerIds.has(String(p.id)) ? 'predicted'
-                   : null
-    }));
-
-    console.log(`[squad] retornando ${players.length} jogadores`);
-    res.json({ players, lineup_status: lineupStatus });
-  } catch(e) {
-    console.log('[squad] erro:', e.message);
-    res.status(500).json({ error: e.message });
-  }
-});
-
-// ─────────────────────────────────────────────
-// ÁRBITRO — stats por jogo (cartões, pênaltis)
-// Útil para apostadores: árbitros com histórico
-// de muitos cartões elevam Over de cartões
-// ─────────────────────────────────────────────
-app.get('/api/arbitros/:id/stats', async (req, res) => {
-  try {
-    const id = req.params.id;
-    const [detailRes, matchesRes] = await Promise.allSettled([
-      bsd(`/referees/${id}/`),
-      bsd(`/referees/${id}/matches/`, {
-        date_from: dayOffset(-365),
-        date_to:   dayOffset(0),
-        limit: 15,
-        ordering: '-event_date'
-      })
-    ]);
-
-    const detail    = detailRes.status  === 'fulfilled' ? detailRes.value  : null;
-    const matchData = matchesRes.status === 'fulfilled' ? matchesRes.value : null;
-    const items     = matchData?.results || [];
-
-    const avgY = detail?.avg_yellow_per_match ?? null;
-    const avgR = detail?.avg_red_per_match    ?? null;
-    const avgF = detail?.avg_fouls_per_match  ?? null;
-    const avgP = detail?.avg_goals_per_match  ?? null;
-    const totM = detail?.matches              ?? items.length;
-    const totY = detail?.total_yellow_cards   ?? null;
-    const totR = detail?.total_red_cards      ?? null;
-
-    // Para cada jogo, busca os incidentes para contar cartões reais por partida
-    // /events/{id}/incidents/ retorna gols, cartões, substituições etc.
-    const jogos = await Promise.all(items.map(async m => {
-      const ev  = m.event || m;
-      const evId = ev.id || m.id || null;
-      let yellow = m.yellow_cards ?? m.referee_yellow_cards ?? null;
-      let red    = m.red_cards    ?? m.referee_red_cards    ?? null;
-
-      // Se a BSD não retornou cartões no item, busca nos incidentes do evento
-      if (evId && (yellow === null || red === null)) {
-        try {
-          const inc = await bsd(`/events/${evId}/incidents/`);
-          const list = inc.results || inc.incidents || [];
-          if (list.length > 0) {
-            yellow = list.filter(i =>
-              i.card_type === 'yellow' || i.card_type === 'yellowCard' ||
-              (i.type === 'card' && (i.card_type === 'yellow' || String(i.card_type||'').toLowerCase().includes('yellow')))
-            ).length;
-            red = list.filter(i =>
-              i.card_type === 'red' || i.card_type === 'redCard' ||
-              i.card_type === 'yellow_red' || i.card_type === 'yellowRed' ||
-              (i.type === 'card' && (i.card_type === 'red' || String(i.card_type||'').toLowerCase().includes('red')))
-            ).length;
-          } else {
-            // Fallback: tenta stats do evento (tem yellow_cards somados por time)
-            try {
-              const st = await bsd(`/events/${evId}/stats/`);
-              const sh = st?.stats?.home || st?.home || {};
-              const sa = st?.stats?.away || st?.away || {};
-              yellow = (Number(sh.yellow_cards||0) + Number(sa.yellow_cards||0)) || null;
-              red    = (Number(sh.red_cards||0)    + Number(sa.red_cards||0))    || null;
-            } catch (_) {}
-          }
-        } catch (e) {
-          console.warn(`[arb-incidents] erro evento ${evId}:`, e.message);
-        }
-      }
-
-      return {
-        id:           evId,
-        home_team:    ev.home_team  || m.home_team  || '—',
-        away_team:    ev.away_team  || m.away_team  || '—',
-        event_date:   ev.event_date || m.event_date || null,
-        yellow_cards: yellow,
-        red_cards:    red,
-        penalties:    m.penalties  ?? null,
-        league_name:  ev.league?.name || m.league_name || '—',
-      };
-    }));
-
-    // Busca próximos jogos do árbitro (próximos 14 dias)
-    let proximosJogos = [];
-    try {
-      const futEvs = await bsd('/events/', {
-        date_from: today(),
-        date_to:   dayOffset(14),
-        limit:     500,
-        referee_id: id
-      });
-      // Se BSD não suporta referee_id como filtro, filtra manualmente
-      const all = futEvs.results || [];
-      proximosJogos = all
-        .filter(ev => String(ev.referee_id||ev.referee?.id||'') === String(id))
-        .map(ev => ({
-          id:          ev.id,
-          home_team:   ev.home_team,
-          away_team:   ev.away_team,
-          event_date:  ev.event_date,
-          league_name: ev.league?.name || ev.league_name || '—',
-        }))
-        .sort((a,b) => new Date(a.event_date) - new Date(b.event_date))
-        .slice(0, 5);
-    } catch(_) {}
-
-    res.json({
-      detail, jogos, proximos_jogos: proximosJogos,
-      averages: {
-        yellow_per_game:    avgY ?? 0,
-        red_per_game:       avgR ?? 0,
-        fouls_per_game:     avgF ?? 0,
-        penalties_per_game: avgP ?? 0,
-        games_analyzed:     totM,
-        total_yellow:       totY,
-        total_red:          totR,
-      }
-    });
-  } catch (e) {
-    console.error('[arbitros/stats]', e.message);
-    res.status(500).json({ error: e.message });
-  }
-});
-
-// Árbitro por nome
-app.get('/api/arbitros/buscar', async (req, res) => {
-  try {
-    const { name, league_id } = req.query;
-    const data = await bsd('/referees/', { name, league_id, limit: 20 });
-    res.json(data);
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
-});
 
 // ─────────────────────────────────────────────
 // ÁRBITROS DOS PRÓXIMOS JOGOS
@@ -1486,6 +948,58 @@ app.get('/api/h2h', async (req, res) => {
       .sort((a,b) => new Date(b.event_date) - new Date(a.event_date));
     res.json({ results: all, count: all.length });
   } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ─────────────────────────────────────────────
+// /api/teams — busca de times (usado pelo frontend)
+// Usa /api/v2/teams/?name= conforme schema v2
+// ─────────────────────────────────────────────
+app.get('/api/teams', async (req, res) => {
+  try {
+    const q = (req.query.q || req.query.name || '').trim();
+    if (!q) return res.json({ results: [] });
+    const norm = s => (s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+    const term = norm(q);
+    const seen = new Map();
+
+    // 1ª fonte: API v2 nativa com busca por nome
+    try {
+      const r = await fetch(
+        `https://sports.bzzoiro.com/api/v2/teams/?name=${encodeURIComponent(q)}&limit=20`,
+        { headers: { Authorization: `Token ${BSD_TOKEN}` } }
+      ).then(r => r.json());
+      (r.results || []).forEach(t => {
+        if (t.id && !seen.has(t.id))
+          seen.set(t.id, { id: t.id, name: t.name, country: t.country || '' });
+      });
+    } catch(_) {}
+
+    // 2ª fonte: eventos recentes como fallback
+    if (seen.size < 3) {
+      try {
+        const evData = await bsd('/events/', {
+          date_from: new Date(Date.now()-60*86400000).toISOString().slice(0,10),
+          date_to:   new Date(Date.now()+14*86400000).toISOString().slice(0,10),
+          limit: 300
+        });
+        (evData.results || []).forEach(ev => {
+          const hid = ev.home_team_id || ev.home_team_obj?.id;
+          const aid = ev.away_team_id || ev.away_team_obj?.id;
+          const hn = norm(ev.home_team||''), an = norm(ev.away_team||'');
+          if ((hn.includes(term)||hn.split(/\s+/).some(w=>w.startsWith(term))) && hid && !seen.has(hid))
+            seen.set(hid, { id: hid, name: ev.home_team, country: ev.league?.country||'' });
+          if ((an.includes(term)||an.split(/\s+/).some(w=>w.startsWith(term))) && aid && !seen.has(aid))
+            seen.set(aid, { id: aid, name: ev.away_team, country: ev.league?.country||'' });
+        });
+      } catch(_) {}
+    }
+
+    const results = Array.from(seen.values()).slice(0, 15);
+    console.log(`Teams search "${q}": achou ${results.length} via v2/eventos`);
+    res.json({ results });
+  } catch(e) {
     res.status(500).json({ error: e.message });
   }
 });
@@ -1954,6 +1468,120 @@ app.get('/api/bookmakers', async (req, res) => {
 });
 
 // ─────────────────────────────────────────────
+// VALUE BETS
+// Calcula value bets cruzando odds reais com probabilidades da predição IA
+// Value = odd × probabilidade > 1.05 (margem mínima de 5%)
+// ─────────────────────────────────────────────
+app.get('/api/valuebets', async (req, res) => {
+  try {
+    const { date_from, date_to, league_id, min_value = 1.05 } = req.query;
+    const df = date_from || new Date().toISOString().slice(0,10);
+    const dt = date_to   || new Date(Date.now()+3*86400000).toISOString().slice(0,10);
+
+    const evParams = { date_from: df, date_to: dt, limit: 200, tz: 'America/Sao_Paulo' };
+    if (league_id) evParams.league = league_id;
+    const evData = await bsd('/events/', evParams);
+    const eventos = (evData.results || []).map(normEvento);
+
+    const valueBets = [];
+    await Promise.allSettled(eventos.map(async ev => {
+      try {
+        const pred = await bsd(`/predictions/${ev.id}/`);
+        const ph = pred.prob_home ?? pred.home_win_prob ?? null;
+        const pd = pred.prob_draw ?? pred.draw_prob     ?? null;
+        const pa = pred.prob_away ?? pred.away_win_prob ?? null;
+        const oh = parseFloat(ev.odds_home || 0);
+        const od = parseFloat(ev.odds_draw || 0);
+        const oa = parseFloat(ev.odds_away || 0);
+
+        const bets = [];
+        if (ph && oh > 0) { const v = oh * ph; if (v >= parseFloat(min_value)) bets.push({ mercado: 'Casa',   odd: oh, prob: (ph*100).toFixed(1), value: v.toFixed(3) }); }
+        if (pd && od > 0) { const v = od * pd; if (v >= parseFloat(min_value)) bets.push({ mercado: 'Empate', odd: od, prob: (pd*100).toFixed(1), value: v.toFixed(3) }); }
+        if (pa && oa > 0) { const v = oa * pa; if (v >= parseFloat(min_value)) bets.push({ mercado: 'Fora',   odd: oa, prob: (pa*100).toFixed(1), value: v.toFixed(3) }); }
+
+        if (bets.length) {
+          valueBets.push({
+            event_id:   ev.id,
+            home_team:  ev.home_team,
+            away_team:  ev.away_team,
+            league:     ev.league_name,
+            event_date: ev.event_date,
+            bets: bets.sort((a,b) => b.value - a.value)
+          });
+        }
+      } catch(_) {}
+    }));
+
+    valueBets.sort((a,b) => Math.max(...b.bets.map(x=>x.value)) - Math.max(...a.bets.map(x=>x.value)));
+    res.json({ valuebets: valueBets, total: valueBets.length, date_from: df, date_to: dt });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// ─────────────────────────────────────────────
+// H2H — Histórico de confrontos diretos
+// ─────────────────────────────────────────────
+app.get('/api/h2h', async (req, res) => {
+  try {
+    const { home_id, away_id, limit = 10 } = req.query;
+    if (!home_id || !away_id) return res.status(400).json({ error: 'home_id e away_id obrigatórios' });
+
+    // Busca jogos entre os dois times (ambas as direções)
+    const [r1, r2] = await Promise.allSettled([
+      bsd('/events/', { home_team_id: home_id, away_team_id: away_id, limit: 20, ordering: '-event_date' }),
+      bsd('/events/', { home_team_id: away_id, away_team_id: home_id, limit: 20, ordering: '-event_date' }),
+    ]);
+    const j1 = r1.status === 'fulfilled' ? (r1.value.results || []) : [];
+    const j2 = r2.status === 'fulfilled' ? (r2.value.results || []) : [];
+
+    const todos = [...j1, ...j2]
+      .map(normEvento)
+      .filter(ev => ev.home_score !== null && ev.away_score !== null)
+      .sort((a,b) => new Date(b.event_date) - new Date(a.event_date))
+      .slice(0, parseInt(limit));
+
+    // Stats agregadas
+    let h1w = 0, h2w = 0, draws = 0, goalsTotal = 0;
+    todos.forEach(ev => {
+      const hs = ev.home_score, as_ = ev.away_score;
+      goalsTotal += hs + as_;
+      if (hs > as_) {
+        if (String(ev.home_team_id) === String(home_id)) h1w++; else h2w++;
+      } else if (as_ > hs) {
+        if (String(ev.away_team_id) === String(home_id)) h1w++; else h2w++;
+      } else draws++;
+    });
+
+    res.json({
+      jogos: todos,
+      stats: { team1_wins: h1w, team2_wins: h2w, draws, total: todos.length, avg_goals: todos.length ? (goalsTotal/todos.length).toFixed(1) : 0 }
+    });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// ─────────────────────────────────────────────
+// PREDIÇÃO COMPLETA — todos os mercados disponíveis
+// ─────────────────────────────────────────────
+app.get('/api/predicao-completa/:eventId', async (req, res) => {
+  try {
+    const pred = await bsd(`/predictions/${req.params.eventId}/`);
+    res.json(pred);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// ─────────────────────────────────────────────
+// STANDINGS ENRIQUECIDO — tabela com xG e forma
+// ─────────────────────────────────────────────
+app.get('/api/standings-rich/:leagueId', async (req, res) => {
+  try {
+    const { season } = req.query;
+    const params = { limit: 100 };
+    if (season) params.season = season;
+    const data = await bsd(`/leagues/${req.params.leagueId}/standings/`, params);
+    res.json(data);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// ─────────────────────────────────────────────
 // START
 // ─────────────────────────────────────────────
 app.listen(PORT, () => {
@@ -1969,4 +1597,5 @@ app.listen(PORT, () => {
   }, 14 * 60 * 1000); // a cada 14 minutos
 });
 
-app.get('/api/ping', (req, res) => res.json({ ok: true, ts: Date.now() }));
+app.get('/api/ping',   (req, res) => res.json({ ok: true, ts: Date.now() }));
+app.get('/api/status', (req, res) => res.json({ ok: true, ts: Date.now(), cache: _refCache.size }));
