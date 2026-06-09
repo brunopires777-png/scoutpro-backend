@@ -1720,6 +1720,14 @@ function mtab(nome,btn){
 function renderMtResumo(d){
   const ev=d.evento;if(!ev)return;
   let html=``;
+  // AI Preview — texto gerado por IA sobre o jogo
+  const aiText = d.ai_preview || d.metadata?.ai_preview || d.evento?.ai_preview || null;
+  if(aiText){
+    html+=`<div style="background:rgba(57,255,20,.05);border:1px solid rgba(57,255,20,.15);border-radius:12px;padding:12px 14px;margin-bottom:14px;position:relative">
+      <div style="font-size:10px;color:rgba(57,255,20,.6);font-weight:700;letter-spacing:.08em;margin-bottom:6px">🤖 ANÁLISE IA</div>
+      <div style="font-size:13px;color:#ccc;line-height:1.6">${aiText}</div>
+    </div>`;
+  }
   const goals=(d.incidents?.incidents||[]).filter(i=>i.type==='goal');
   if(goals.length){
     html+=`<div class="slabel" style="margin:12px 0 6px">⚽ GOLS</div><div class="inc-list">${goals.map(g=>`
@@ -1962,22 +1970,74 @@ function renderMtJogadores(d){
 
 function renderMtOdds(d){
   const el=document.getElementById('mt-odds');
-  const o=d.odds?.odds;
-  if(!o){el.innerHTML='<div class="empty"><p>Odds não disponíveis</p></div>';return;}
-  el.innerHTML=`<div class="odds-main">
-    <div class="oc"><div class="ol">CASA</div><div class="ov">${o.home_win?.toFixed(2)||'—'}</div></div>
-    <div class="oc"><div class="ol">EMPATE</div><div class="ov">${o.draw?.toFixed(2)||'—'}</div></div>
-    <div class="oc"><div class="ol">FORA</div><div class="ov">${o.away_win?.toFixed(2)||'—'}</div></div>
-  </div>
-  <div class="slabel" style="margin:12px 0 8px">MERCADOS</div>
-  <div class="odds-sec">
-    <div class="os"><div class="ol">Over 1.5</div><div class="ov">${o.over_15_goals?.toFixed(2)||'—'}</div></div>
-    <div class="os"><div class="ol">Over 2.5</div><div class="ov">${o.over_25_goals?.toFixed(2)||'—'}</div></div>
-    <div class="os"><div class="ol">Over 3.5</div><div class="ov">${o.over_35_goals?.toFixed(2)||'—'}</div></div>
-    <div class="os"><div class="ol">Under 1.5</div><div class="ov">${o.under_15_goals?.toFixed(2)||'—'}</div></div>
-    <div class="os"><div class="ol">Under 2.5</div><div class="ov">${o.under_25_goals?.toFixed(2)||'—'}</div></div>
-    <div class="os"><div class="ol">BTTS Sim</div><div class="ov">${o.btts_yes?.toFixed(2)||'—'}</div></div>
-  </div>`;
+  // Tenta odds comparison (14 casas) primeiro, depois fallback para odds simples
+  const comp = d.odds?.bookmakers || d.odds?.odds_comparison || d.odds?.comparison || null;
+  const o = d.odds?.odds;
+
+  if(!comp && !o){el.innerHTML='<div class="empty"><p>Odds não disponíveis</p></div>';return;}
+
+  let html='';
+
+  // Se tiver comparison com múltiplas casas
+  if(comp && Array.isArray(comp) && comp.length){
+    html+=`<div class="slabel" style="margin-bottom:10px">COMPARAÇÃO — ${comp.length} CASAS</div>`;
+    // Encontra melhores odds
+    const bestH=Math.max(...comp.map(b=>parseFloat(b.home_win||b.home||0)));
+    const bestD=Math.max(...comp.map(b=>parseFloat(b.draw||0)));
+    const bestA=Math.max(...comp.map(b=>parseFloat(b.away_win||b.away||0)));
+
+    html+=`<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:14px;text-align:center">
+      <div style="background:rgba(0,200,255,.08);border:1px solid rgba(0,200,255,.2);border-radius:10px;padding:10px">
+        <div style="font-size:10px;color:#666;margin-bottom:4px">MELHOR CASA</div>
+        <div style="font-family:'Bebas Neue',sans-serif;font-size:24px;color:var(--cyan)">${bestH.toFixed(2)}</div>
+      </div>
+      <div style="background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:10px;padding:10px">
+        <div style="font-size:10px;color:#666;margin-bottom:4px">MELHOR EMPATE</div>
+        <div style="font-family:'Bebas Neue',sans-serif;font-size:24px;color:#aaa">${bestD.toFixed(2)}</div>
+      </div>
+      <div style="background:rgba(255,145,0,.08);border:1px solid rgba(255,145,0,.2);border-radius:10px;padding:10px">
+        <div style="font-size:10px;color:#666;margin-bottom:4px">MELHOR FORA</div>
+        <div style="font-family:'Bebas Neue',sans-serif;font-size:24px;color:var(--orange)">${bestA.toFixed(2)}</div>
+      </div>
+    </div>`;
+
+    html+=`<div style="display:flex;flex-direction:column;gap:6px">`;
+    comp.forEach(b=>{
+      const bname=b.bookmaker||b.bookmaker_name||b.name||'—';
+      const bh=parseFloat(b.home_win||b.home||0);
+      const bd=parseFloat(b.draw||0);
+      const ba=parseFloat(b.away_win||b.away||0);
+      const hBest=bh>0&&bh===bestH,aBest=ba>0&&ba===bestA,dBest=bd>0&&bd===bestD;
+      html+=`<div style="display:flex;align-items:center;gap:8px;padding:8px 10px;background:rgba(255,255,255,.03);border-radius:10px;border:1px solid rgba(255,255,255,.06)">
+        <span style="flex:1;font-size:12px;color:#aaa">${bname}</span>
+        <span style="font-family:'Bebas Neue',sans-serif;font-size:15px;min-width:38px;text-align:center;color:${hBest?'var(--cyan)':'#666'};${hBest?'font-weight:700':''}">${bh>0?bh.toFixed(2):'—'}</span>
+        <span style="font-family:'Bebas Neue',sans-serif;font-size:15px;min-width:38px;text-align:center;color:${dBest?'#fff':'#555'};${dBest?'font-weight:700':''}">${bd>0?bd.toFixed(2):'—'}</span>
+        <span style="font-family:'Bebas Neue',sans-serif;font-size:15px;min-width:38px;text-align:center;color:${aBest?'var(--orange)':'#666'};${aBest?'font-weight:700':''}">${ba>0?ba.toFixed(2):'—'}</span>
+      </div>`;
+    });
+    html+=`</div>`;
+  } else if(o){
+    // Fallback: odds simples
+    html+=`<div class="odds-main">
+      <div class="oc"><div class="ol">CASA</div><div class="ov">${o.home_win?.toFixed(2)||'—'}</div></div>
+      <div class="oc"><div class="ol">EMPATE</div><div class="ov">${o.draw?.toFixed(2)||'—'}</div></div>
+      <div class="oc"><div class="ol">FORA</div><div class="ov">${o.away_win?.toFixed(2)||'—'}</div></div>
+    </div>`;
+  }
+
+  // Mercados over/under
+  if(o){
+    html+=`<div class="slabel" style="margin:12px 0 8px">MERCADOS</div>
+    <div class="odds-sec">
+      <div class="os"><div class="ol">Over 1.5</div><div class="ov">${o.over_15_goals?.toFixed(2)||'—'}</div></div>
+      <div class="os"><div class="ol">Over 2.5</div><div class="ov">${o.over_25_goals?.toFixed(2)||'—'}</div></div>
+      <div class="os"><div class="ol">Over 3.5</div><div class="ov">${o.over_35_goals?.toFixed(2)||'—'}</div></div>
+      <div class="os"><div class="ol">Under 2.5</div><div class="ov">${o.under_25_goals?.toFixed(2)||'—'}</div></div>
+      <div class="os"><div class="ol">BTTS Sim</div><div class="ov">${o.btts_yes?.toFixed(2)||'—'}</div></div>
+    </div>`;
+  }
+
+  el.innerHTML=html;
 }
 
 function renderMtPredicao(d){
@@ -3376,31 +3436,54 @@ try{Object.keys(localStorage).filter(k=>k.startsWith('sp4_teams_')).forEach(k=>l
 // ── VALUE BETS ────────────────────────────────────────────────────────────────
 async function carregarValueBets() {
   const area = document.getElementById('jogos-area');
-  area.innerHTML = `<div class="loading"><div class="spinner-wrap"><div class="spinner"></div></div><p>Calculando value bets...</p></div>`;
+  area.innerHTML = `<div class="loading"><div class="spinner-wrap"><div class="spinner"></div></div><p>Buscando value bets...</p></div>`;
   try {
-    const r = await fetch(`${API}/api/valuebets`);
+    const r = await fetch(`${API}/api/value-bets?limit=50`);
     const d = await r.json();
-    const vbs = d.valuebets || [];
+    const vbs = d.results || [];
     if (!vbs.length) {
-      area.innerHTML = `<div class="empty"><div class="empty-icon">💎</div><p>Nenhuma value bet encontrada nos próximos 3 dias.<br><small style="color:#555">É necessário que a BSD tenha odds e predições disponíveis para os jogos.</small></p></div>`;
+      area.innerHTML = `<div class="empty"><div class="empty-icon">💎</div><p>Nenhuma value bet encontrada no momento.<br><small style="color:#555">A BSD atualiza os picks regularmente. Tente novamente em breve.</small></p></div>`;
       return;
     }
-    let html = `<div style="padding:4px 0 10px"><div style="font-size:11px;color:#555;margin-bottom:12px;padding:0 4px">💎 Value = odd × prob IA > 1.05 · ${vbs.length} apostas encontradas</div>`;
-    vbs.forEach(ev => {
-      const dt = ev.event_date ? new Date(ev.event_date).toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit',timeZone:'America/Sao_Paulo'}) : '';
-      html += `<div class="card" style="margin-bottom:10px;cursor:pointer" onclick="abrirJogo(${ev.event_id})">
+    let html = `<div style="padding:4px 0 10px">
+      <div style="font-size:11px;color:#555;margin-bottom:12px;padding:0 4px">💎 ${vbs.length} value bets · Estratégia v2 BSD · Edge mínimo 5%</div>`;
+    vbs.forEach(vb => {
+      const ev = vb.event || vb.match || {};
+      const ht = ev.home_team || vb.home_team || '—';
+      const at = ev.away_team || vb.away_team || '—';
+      const lg = ev.league_name || vb.league_name || '';
+      const dt = (ev.event_date||vb.event_date) ? new Date(ev.event_date||vb.event_date).toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit',timeZone:'America/Sao_Paulo'}) : '';
+      const conf = vb.confidence ?? 0;
+      const confColor = conf>=90?'var(--green)':conf>=75?'var(--gold)':'var(--cyan)';
+      const bets = vb.best_odds || [vb];
+      const evId = ev.id || vb.event_id || null;
+
+      html += `<div class="card" style="margin-bottom:10px${evId?';cursor:pointer':''}" ${evId?`onclick="abrirJogo(${evId})"`:''}>
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-          <span style="font-size:10px;color:#555">${ev.league||''}${dt?' · '+dt:''}</span>
+          <span style="font-size:10px;color:#555">${lg}${dt?' · '+dt:''}</span>
+          <div style="background:rgba(57,255,20,.1);border:1px solid rgba(57,255,20,.25);border-radius:20px;padding:2px 10px;display:flex;align-items:center;gap:4px">
+            <span style="font-family:'Bebas Neue',sans-serif;font-size:14px;color:${confColor}">${conf}</span>
+            <span style="font-size:9px;color:#555">CONF</span>
+          </div>
         </div>
-        <div style="font-family:'Bebas Neue',sans-serif;font-size:16px;color:#eee;margin-bottom:10px">${ev.home_team} × ${ev.away_team}</div>
-        ${ev.bets.map(b=>{
-          const val=parseFloat(b.value);
-          const color=val>=1.2?'var(--green)':val>=1.1?'var(--gold)':'var(--cyan)';
-          return `<div style="display:flex;align-items:center;justify-content:space-between;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.07);border-radius:10px;padding:8px 12px;margin-bottom:6px">
-            <div><span style="font-family:'Bebas Neue',sans-serif;font-size:14px;color:#ccc">${b.mercado}</span><span style="font-size:10px;color:#555;margin-left:8px">prob ${b.prob}%</span></div>
-            <div style="display:flex;align-items:center;gap:12px">
-              <span style="font-family:'Bebas Neue',sans-serif;font-size:16px;color:#aaa">@${b.odd}</span>
-              <span style="font-family:'Bebas Neue',sans-serif;font-size:18px;color:${color}">×${b.value}</span>
+        <div style="font-family:'Bebas Neue',sans-serif;font-size:16px;color:#eee;margin-bottom:10px">${ht} × ${at}</div>
+        ${bets.map(b=>{
+          const outcome = b.outcome_name||b.outcome||b.pick||b.market||'—';
+          const odd = parseFloat(b.decimal_odds||b.odd||b.odds||0);
+          const edge = b.edge_pct||b.edge||null;
+          const fairOdd = b.fair_odd||null;
+          const book = b.bookmaker_name||b.bookmaker||'';
+          const tier = b.tier||'';
+          const edgeColor = edge>=10?'var(--green)':edge>=7?'var(--gold)':'var(--cyan)';
+          return `<div style="display:flex;align-items:center;justify-content:space-between;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.07);border-radius:10px;padding:10px 12px;margin-bottom:6px">
+            <div>
+              <div style="font-family:'Bebas Neue',sans-serif;font-size:15px;color:#ddd">${outcome}</div>
+              ${book?`<div style="font-size:10px;color:#555;margin-top:2px">${book}${tier?' · '+tier:''}</div>`:''}
+            </div>
+            <div style="display:flex;align-items:center;gap:10px;flex-shrink:0">
+              ${fairOdd?`<div style="text-align:center"><div style="font-size:9px;color:#444">FAIR ODD</div><div style="font-family:'Bebas Neue',sans-serif;font-size:13px;color:#555">${Number(fairOdd).toFixed(2)}</div></div>`:''}
+              <div style="text-align:center"><div style="font-size:9px;color:#444">ODD</div><div style="font-family:'Bebas Neue',sans-serif;font-size:18px;color:#ccc">${odd>0?odd.toFixed(2):'—'}</div></div>
+              ${edge!=null?`<div style="background:rgba(57,255,20,.1);border:1px solid rgba(57,255,20,.2);border-radius:8px;padding:4px 8px;text-align:center"><div style="font-size:9px;color:#555">EDGE</div><div style="font-family:'Bebas Neue',sans-serif;font-size:16px;color:${edgeColor}">+${Number(edge).toFixed(1)}%</div></div>`:''}
             </div>
           </div>`;
         }).join('')}
