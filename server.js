@@ -6,7 +6,7 @@ const fs   = require('fs');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const BSD_TOKEN = process.env.BSD_TOKEN || 'dddbf69d96a0efa0ffeb9f8d0c791528b61d1c1d';
+const BSD_TOKEN = process.env.BSD_TOKEN || '3ac7312dc7cd33a74b591a63e36dac38c652ccd4';
 const BASE_URL = 'https://sports.bzzoiro.com/api/v2';
 
 app.use(cors({
