@@ -6,7 +6,7 @@ const fs   = require('fs');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const BSD_TOKEN = process.env.BSD_TOKEN || '3ac7312dc7cd33a74b591a63e36dac38c652ccd4';
+const BSD_TOKEN = process.env.BSD_TOKEN || 'SEU_TOKEN_AQUI';
 const BASE_URL = 'https://sports.bzzoiro.com/api/v2';
 
 app.use(cors({
@@ -710,14 +710,15 @@ app.get('/api/jogos/ao-vivo', async (req, res) => {
 app.get('/api/jogos/:id', async (req, res) => {
   try {
     const id = req.params.id;
-    const [evento, stats, incidents, odds, lineups, playerStats, predicao] = await Promise.allSettled([
-      bsd(`/events/${id}/`, { full: 'true' }),  // full=true traz lineups, shotmap, momentum
+    const [evento, stats, incidents, odds, lineups, playerStats, predicao, metadata] = await Promise.allSettled([
+      bsd(`/events/${id}/`, { full: 'true' }),
       bsd(`/events/${id}/stats/`),
       bsd(`/events/${id}/incidents/`),
-      bsd(`/events/${id}/odds/`),
+      bsd(`/events/${id}/odds/comparison/`),
       bsd(`/events/${id}/lineups/`),
       bsd(`/events/${id}/player-stats/`),
-      bsd(`/events/${id}/prediction/`)
+      bsd(`/events/${id}/prediction/`),
+      bsd(`/events/${id}/metadata/`)
     ]);
 
     const evData = evento.status === 'fulfilled' ? evento.value : null;
@@ -739,6 +740,7 @@ app.get('/api/jogos/:id', async (req, res) => {
       }
     }
 
+    const metaData = metadata?.status === 'fulfilled' ? metadata.value : null;
     res.json({
       evento: evData,
       stats: statsData,
@@ -746,7 +748,9 @@ app.get('/api/jogos/:id', async (req, res) => {
       odds: odds.status === 'fulfilled' ? odds.value : null,
       lineups: lineups.status === 'fulfilled' ? lineups.value : null,
       playerStats: playerStats.status === 'fulfilled' ? playerStats.value : null,
-      predicao: predData
+      predicao: predData,
+      ai_preview: metaData?.ai_preview || metaData?.preview || null,
+      metadata: metaData
     });
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -844,116 +848,30 @@ app.get('/api/predicoes', async (req, res) => {
 
 // ─────────────────────────────────────────────
 // VALUE BETS — endpoint real da BSD v2
-// GET /api/v2/value-bets/ com edge, confidence e bookmaker reais
+// ─────────────────────────────────────────────
+// VALUE BETS — endpoint nativo BSD v2
 // ─────────────────────────────────────────────
 app.get('/api/value-bets', async (req, res) => {
   try {
-    const { market, league_id, min_conf = 70, limit = 50 } = req.query;
+    const { league_id, market, min_edge = 5, limit = 50 } = req.query;
+    const params = { limit };
+    if (league_id) params.league_id = league_id;
+    if (market && market !== 'all') params.market = market;
+    if (min_edge) params.min_edge = min_edge;
 
-    const qs = new URLSearchParams({ limit: limit || 100 });
-    if (market && market !== '1x2') qs.set('market', market);
-    if (league_id) qs.set('league_id', league_id);
+    const data = await bsd('/v2/value-bets/', params);
+    const raw = data.results || data.value_bets || data.bets || [];
 
-    // Tenta endpoint v2 primeiro
-    let raw = [];
-    try {
-      const r2 = await fetch(
-        `https://sports.bzzoiro.com/api/v2/value-bets/?${qs}`,
-        { headers: { Authorization: `Token ${BSD_TOKEN}` } }
-      );
-      const d2 = await r2.json();
-      raw = d2.results || d2.value_bets || d2.bets || d2.data || [];
-      console.log('[value-bets] v2 response keys:', Object.keys(d2));
-      console.log('[value-bets] v2 raw count:', raw.length);
-      if (raw.length > 0) console.log('[value-bets] v2 first item keys:', Object.keys(raw[0]));
-    } catch(e2) {
-      console.log('[value-bets] v2 falhou:', e2.message);
-    }
+    console.log(`[value-bets] BSD retornou ${raw.length} picks`);
+    if (raw.length > 0) console.log('[value-bets] primeiro item:', JSON.stringify(raw[0]).slice(0,200));
 
-    // Fallback: predictions com confiança alta + odds reais
-    if (!raw.length) {
-      console.log('[value-bets] usando fallback via predictions...');
-      const qs2 = new URLSearchParams({
-        date_from: today(), date_to: dayOffset(7), limit: 100, tz: 'America/Sao_Paulo'
-      });
-      if (league_id) qs2.set('league', league_id);
-      const d1 = await fetch(
-        `https://sports.bzzoiro.com/api/predictions/?${qs2}`,
-        { headers: { Authorization: `Token ${BSD_TOKEN}` } }
-      ).then(r => r.json()).catch(() => ({}));
-
-      raw = (d1.results || [])
-        .filter(p => {
-          const mr = (p.markets||p.predictions||{}).match_result || {};
-          return Math.max(mr.prob_home||0, mr.prob_draw||0, mr.prob_away||0) >= 55;
-        })
-        .map(p => {
-          const ev = p.event || {};
-          const mr = (p.markets||p.predictions||{}).match_result || {};
-          const ph=mr.prob_home||0, pd=mr.prob_draw||0, pa=mr.prob_away||0;
-          const maxP = Math.max(ph,pd,pa);
-          const outcome = ph>=pd&&ph>=pa?'home':pa>=ph&&pa>=pd?'away':'draw';
-          const outLabel = {home:'Casa',away:'Fora',draw:'Empate'}[outcome];
-          const odd = {home:ev.odds_home,away:ev.odds_away,draw:ev.odds_draw}[outcome];
-          const recs = p.recommendations || {};
-          return {
-            event: ev,
-            confidence: Math.round((p.model?.confidence||maxP/100)*100),
-            market: market||'1x2',
-            outcome: outLabel,
-            odd: odd||null,
-            bookmaker: 'Consenso BSD',
-            edge_pct: null,
-            fair_odd: null,
-          };
-        });
-      console.log('[value-bets] fallback predictions:', raw.length);
-    }
-
-    let results = raw;
-
-    // Normaliza para o formato que o frontend espera
-    const normalized = results
-      .filter(vb => {
-        // Aceita qualquer resultado com pelo menos um campo reconhecível
-        return vb && (vb.confidence != null || vb.odd != null || vb.odds != null || vb.market != null);
-      })
-      .map(vb => {
-        const ev  = vb.event || vb.match || {};
-        const conf = vb.confidence ?? vb.conf ?? vb.model_confidence ?? 0;
-        const edge = vb.edge_pct   ?? vb.edge ?? vb.value_pct ?? null;
-        // market/outcome
-        const market_name = vb.market || vb.market_key || vb.bet_type || '1x2';
-        const outcome = vb.outcome  || vb.pick || vb.outcome_name || vb.bet || '—';
-        const odds    = vb.odd      || vb.decimal_odds || vb.odds || null;
-        const bookmaker = vb.bookmaker || vb.bookmaker_name || vb.bookmaker_slug || 'Mercado';
-        const fair_odd  = vb.fair_odd  || null;
-
-        return {
-          home_team:   ev.home_team  || vb.home_team  || '—',
-          away_team:   ev.away_team  || vb.away_team  || '—',
-          league_name: ev.league_name || vb.league_name || '—',
-          league_id:   ev.league_id  || vb.league_id  || null,
-          event_date:  ev.event_date  || vb.event_date || null,
-          confidence:  Math.round(conf),
-          market:      market_name,
-          best_odds: [{
-            outcome_name:   outcome,
-            decimal_odds:   odds ? Number(odds) : null,
-            bookmaker_name: bookmaker,
-            edge_pct:       edge,
-            fair_odd:       fair_odd
-          }]
-        };
-      });
-
-    console.log(`[value-bets] raw: ${raw.length}, normalized: ${normalized.length}`);
-    res.json({ results: normalized, total: normalized.length });
-  } catch (e) {
+    res.json({ results: raw, total: raw.length, count: data.count || raw.length });
+  } catch(e) {
     console.error('[value-bets] erro:', e.message);
     res.status(500).json({ error: e.message });
   }
 });
+
 
 // Polymarket (predição de mercado)
 app.get('/api/polymarket', async (req, res) => {
