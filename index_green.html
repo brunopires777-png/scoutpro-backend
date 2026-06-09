@@ -977,8 +977,9 @@ async function buscarTime(){
   try{
     const r=await fetch(`${API}/api/teams?q=${encodeURIComponent(q)}`);
     const d=await r.json();
-    if(d.teams&&d.teams.length>0) times=d.teams;
-    else erroDetalhado=`/api/teams retornou 0 resultados`;
+    const lista = d.teams||d.results||[];
+    if(lista.length>0) times=lista;
+    else erroDetalhado=`/api/teams retornou 0 resultados | token "${q}": 0 resultados`;
   }catch(e){ erroDetalhado=`/api/teams falhou: ${e.message}`; }
 
   // TENTATIVA 2: busca alternativa com variações do nome
@@ -988,10 +989,11 @@ async function buscarTime(){
       const token = q.split(' ')[0];
       const r2 = await fetch(`${API}/api/teams?q=${encodeURIComponent(token)}`);
       const d2 = await r2.json();
-      if(d2.teams&&d2.teams.length>0){
+      const lista2 = d2.teams||d2.results||[];
+      if(lista2.length>0){
         // Filtra os que contêm o termo buscado no nome
-        times = d2.teams.filter(t=>(t.name||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').includes(term));
-        if(!times.length) times = d2.teams; // retorna tudo se não filtrar
+        times = lista2.filter(t=>(t.name||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').includes(term));
+        if(!times.length) times = lista2; // retorna tudo se não filtrar
       }
       if(!times.length) erroDetalhado += ` | token "${token}": 0 resultados`;
     }catch(e){ erroDetalhado+=` | tentativa2 falhou: ${e.message}`; }
@@ -3419,7 +3421,7 @@ async function renderMtH2H(d) {
   const hid = ev.home_team_id, aid = ev.away_team_id;
   if (!hid || !aid) { el.innerHTML = `<div class="empty"><div class="empty-icon">📊</div><p>IDs dos times não disponíveis</p></div>`; return; }
   try {
-    const r = await fetch(`${API}/api/h2h?home_id=${hid}&away_id=${aid}&limit=10`);
+    const r = await fetch(`${API}/api/h2h?home_id=${hid}&away_id=${aid}&event_id=${ev.id}&limit=10`);
     const data = await r.json();
     const jogos = data.jogos || [], st = data.stats || {};
     if (!jogos.length) { el.innerHTML = `<div class="empty"><div class="empty-icon">📊</div><p>Nenhum confronto direto encontrado</p></div>`; return; }
@@ -3571,4 +3573,4 @@ document.addEventListener('keydown',e=>{if(e.key==='Enter'&&document.activeEleme
 
 
 </body>
-      </html>
+</html>
