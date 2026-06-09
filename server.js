@@ -1468,9 +1468,8 @@ app.get('/api/bookmakers', async (req, res) => {
 });
 
 // ─────────────────────────────────────────────
-// VALUE BETS
-// Calcula value bets cruzando odds reais com probabilidades da predição IA
-// Value = odd × probabilidade > 1.05 (margem mínima de 5%)
+// VALUE BETS — usa odds v2 e prediction v2
+// /api/v2/events/{id}/odds/ + /api/v2/events/{id}/prediction/
 // ─────────────────────────────────────────────
 app.get('/api/valuebets', async (req, res) => {
   try {
@@ -1478,33 +1477,45 @@ app.get('/api/valuebets', async (req, res) => {
     const df = date_from || new Date().toISOString().slice(0,10);
     const dt = date_to   || new Date(Date.now()+3*86400000).toISOString().slice(0,10);
 
-    const evParams = { date_from: df, date_to: dt, limit: 200, tz: 'America/Sao_Paulo' };
+    const evParams = { date_from: df, date_to: dt, limit: 100, tz: 'America/Sao_Paulo' };
     if (league_id) evParams.league = league_id;
-    const evData = await bsd('/events/', evParams);
-    const eventos = (evData.results || []).map(normEvento);
+    const evData = await bsd('/v2/events/', evParams);
+    const eventos = (evData.results || []);
 
     const valueBets = [];
     await Promise.allSettled(eventos.map(async ev => {
       try {
-        const pred = await bsd(`/predictions/${ev.id}/`);
-        const ph = pred.prob_home ?? pred.home_win_prob ?? null;
-        const pd = pred.prob_draw ?? pred.draw_prob     ?? null;
-        const pa = pred.prob_away ?? pred.away_win_prob ?? null;
-        const oh = parseFloat(ev.odds_home || 0);
-        const od = parseFloat(ev.odds_draw || 0);
-        const oa = parseFloat(ev.odds_away || 0);
+        // Busca odds e predição em paralelo
+        const [oddsR, predR] = await Promise.allSettled([
+          bsd(`/v2/events/${ev.id}/odds/`),
+          bsd(`/v2/events/${ev.id}/prediction/`)
+        ]);
 
+        const odds = oddsR.status === 'fulfilled' ? oddsR.value : null;
+        const pred = predR.status === 'fulfilled' ? predR.value : null;
+        if (!odds || !pred) return;
+
+        const mr = pred.markets?.match_result;
+        if (!mr) return;
+
+        const ph = mr.prob_home, pd = mr.prob_draw, pa = mr.prob_away;
+        // Odds: formato {home, draw, away} ou por mercado
+        const oh = parseFloat(odds['1x2']?.home || odds.home || odds.odds_home || 0);
+        const od = parseFloat(odds['1x2']?.draw || odds.draw || odds.odds_draw || 0);
+        const oa = parseFloat(odds['1x2']?.away || odds.away || odds.odds_away || 0);
+
+        const minV = parseFloat(min_value);
         const bets = [];
-        if (ph && oh > 0) { const v = oh * ph; if (v >= parseFloat(min_value)) bets.push({ mercado: 'Casa',   odd: oh, prob: (ph*100).toFixed(1), value: v.toFixed(3) }); }
-        if (pd && od > 0) { const v = od * pd; if (v >= parseFloat(min_value)) bets.push({ mercado: 'Empate', odd: od, prob: (pd*100).toFixed(1), value: v.toFixed(3) }); }
-        if (pa && oa > 0) { const v = oa * pa; if (v >= parseFloat(min_value)) bets.push({ mercado: 'Fora',   odd: oa, prob: (pa*100).toFixed(1), value: v.toFixed(3) }); }
+        if (ph && oh > 1) { const v=oh*ph; if(v>=minV) bets.push({ mercado:'Casa',   odd:oh, prob:(ph*100).toFixed(1), value:v.toFixed(3) }); }
+        if (pd && od > 1) { const v=od*pd; if(v>=minV) bets.push({ mercado:'Empate', odd:od, prob:(pd*100).toFixed(1), value:v.toFixed(3) }); }
+        if (pa && oa > 1) { const v=oa*pa; if(v>=minV) bets.push({ mercado:'Fora',   odd:oa, prob:(pa*100).toFixed(1), value:v.toFixed(3) }); }
 
         if (bets.length) {
           valueBets.push({
             event_id:   ev.id,
             home_team:  ev.home_team,
             away_team:  ev.away_team,
-            league:     ev.league_name,
+            league:     ev.league?.name || ev.league_name || '',
             event_date: ev.event_date,
             bets: bets.sort((a,b) => b.value - a.value)
           });
@@ -1512,48 +1523,74 @@ app.get('/api/valuebets', async (req, res) => {
       } catch(_) {}
     }));
 
-    valueBets.sort((a,b) => Math.max(...b.bets.map(x=>x.value)) - Math.max(...a.bets.map(x=>x.value)));
+    valueBets.sort((a,b) => Math.max(...b.bets.map(x=>parseFloat(x.value))) - Math.max(...a.bets.map(x=>parseFloat(x.value))));
     res.json({ valuebets: valueBets, total: valueBets.length, date_from: df, date_to: dt });
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
 // ─────────────────────────────────────────────
-// H2H — Histórico de confrontos diretos
+// H2H — usa endpoint nativo v2 da BSD quando possível
 // ─────────────────────────────────────────────
 app.get('/api/h2h', async (req, res) => {
   try {
-    const { home_id, away_id, limit = 10 } = req.query;
-    if (!home_id || !away_id) return res.status(400).json({ error: 'home_id e away_id obrigatórios' });
+    const { home_id, away_id, event_id, limit = 10 } = req.query;
 
-    // Busca jogos entre os dois times (ambas as direções)
+    // Tenta endpoint nativo v2 primeiro (mais preciso)
+    if (event_id) {
+      try {
+        const native = await bsd(`/v2/events/${event_id}/h2h/`);
+        if (native && (native.total_matches > 0 || native.home_wins != null)) {
+          // Busca também os jogos históricos
+          const [r1, r2] = await Promise.allSettled([
+            bsd('/events/', { home_team_id: home_id, away_team_id: away_id, limit: 10, ordering: '-event_date' }),
+            bsd('/events/', { home_team_id: away_id, away_team_id: home_id, limit: 10, ordering: '-event_date' }),
+          ]);
+          const j1 = r1.status === 'fulfilled' ? (r1.value.results || []) : [];
+          const j2 = r2.status === 'fulfilled' ? (r2.value.results || []) : [];
+          const jogos = [...j1, ...j2]
+            .map(normEvento)
+            .filter(ev => ev.home_score !== null && ev.away_score !== null)
+            .sort((a,b) => new Date(b.event_date) - new Date(a.event_date))
+            .slice(0, parseInt(limit));
+          return res.json({
+            jogos,
+            stats: {
+              team1_wins: native.home_wins ?? 0,
+              team2_wins: native.away_wins ?? 0,
+              draws:      native.draws     ?? 0,
+              total:      native.total_matches ?? jogos.length,
+              avg_goals:  native.avg_goals  ?? (jogos.length ? (jogos.reduce((s,j)=>s+(j.home_score||0)+(j.away_score||0),0)/jogos.length).toFixed(1) : 0)
+            }
+          });
+        }
+      } catch(_) {}
+    }
+
+    // Fallback: cruzar dois endpoints de eventos
+    if (!home_id || !away_id) return res.status(400).json({ error: 'home_id e away_id obrigatórios' });
     const [r1, r2] = await Promise.allSettled([
-      bsd('/events/', { home_team_id: home_id, away_team_id: away_id, limit: 20, ordering: '-event_date' }),
-      bsd('/events/', { home_team_id: away_id, away_team_id: home_id, limit: 20, ordering: '-event_date' }),
+      bsd('/events/', { home_team_id: home_id, away_team_id: away_id, limit: 15, ordering: '-event_date' }),
+      bsd('/events/', { home_team_id: away_id, away_team_id: home_id, limit: 15, ordering: '-event_date' }),
     ]);
     const j1 = r1.status === 'fulfilled' ? (r1.value.results || []) : [];
     const j2 = r2.status === 'fulfilled' ? (r2.value.results || []) : [];
-
     const todos = [...j1, ...j2]
       .map(normEvento)
       .filter(ev => ev.home_score !== null && ev.away_score !== null)
       .sort((a,b) => new Date(b.event_date) - new Date(a.event_date))
       .slice(0, parseInt(limit));
 
-    // Stats agregadas
-    let h1w = 0, h2w = 0, draws = 0, goalsTotal = 0;
+    let h1w = 0, h2w = 0, draws = 0, goals = 0;
     todos.forEach(ev => {
-      const hs = ev.home_score, as_ = ev.away_score;
-      goalsTotal += hs + as_;
-      if (hs > as_) {
-        if (String(ev.home_team_id) === String(home_id)) h1w++; else h2w++;
-      } else if (as_ > hs) {
-        if (String(ev.away_team_id) === String(home_id)) h1w++; else h2w++;
-      } else draws++;
+      goals += (ev.home_score||0) + (ev.away_score||0);
+      if (ev.home_score > ev.away_score) { if (String(ev.home_team_id)===String(home_id)) h1w++; else h2w++; }
+      else if (ev.away_score > ev.home_score) { if (String(ev.away_team_id)===String(home_id)) h1w++; else h2w++; }
+      else draws++;
     });
 
     res.json({
       jogos: todos,
-      stats: { team1_wins: h1w, team2_wins: h2w, draws, total: todos.length, avg_goals: todos.length ? (goalsTotal/todos.length).toFixed(1) : 0 }
+      stats: { team1_wins: h1w, team2_wins: h2w, draws, total: todos.length, avg_goals: todos.length ? (goals/todos.length).toFixed(1) : 0 }
     });
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
