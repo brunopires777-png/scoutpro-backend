@@ -3635,7 +3635,7 @@ async function carregarGraficoTime(teamId, teamName) {
         // Escudo clicável — ao clicar busca o time adversário
         const shieldClick = oppId ? `onclick="window._buscarTimeGrafico('${oppId}','${oppName.replace(/'/g,"\'")}')" style="cursor:pointer"` : '';
         const shield = oppId
-          ? `<img src="${API}/img/team/${oppId}/" ${shieldClick} style="width:30px;height:30px;object-fit:contain;border-radius:50%;background:rgba(255,255,255,.06);padding:2px;transition:transform .15s" onmouseover="this.style.transform='scale(1.15)'" onmouseout="this.style.transform='scale(1)'" onerror="this.outerHTML='<span style=font-size:16px>⚽</span>'">`
+          ? `<img src="${API}/img/team/${oppId}/" ${shieldClick} style="width:3px;height:3px;object-fit:contain;border-radius:50%;background:rgba(255,255,255,.06);padding:2px;transition:transform .15s" onmouseover="this.style.transform='scale(1.15)'" onmouseout="this.style.transform='scale(1)'" onerror="this.outerHTML='<span style=font-size:16px>⚽</span>'">`
           : `<span style="font-size:16px">⚽</span>`;
         return `<div style="display:flex;flex-direction:column;align-items:center;flex:1;min-width:0;gap:0">
           <div style="font-size:12px;font-weight:700;color:#fff;margin-bottom:4px;min-height:18px;text-shadow:0 1px 4px rgba(0,0,0,.8)">${v>0?v+(metric==='possession'?'%':''):''}</div>
@@ -3814,4 +3814,4 @@ document.addEventListener('keydown',e=>{if(e.key==='Enter'&&document.activeEleme
 
 
 </body>
-</html>
+          </html>
