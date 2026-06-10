@@ -1467,8 +1467,90 @@ app.get('/api/times/:id/jogos', async (req, res) => {
 });
 
 // ─────────────────────────────────────────────
-// JOGADORES
+// GRÁFICO DE DESEMPENHO DO TIME
+// Últimos 10 jogos finalizados com stats
 // ─────────────────────────────────────────────
+app.get('/api/times/:id/grafico', async (req, res) => {
+  try {
+    const teamId = req.params.id;
+    // Busca últimos 20 jogos finalizados (todas as competições)
+    const fixtures = await bsd(`/teams/${teamId}/fixtures/`, {
+      status: 'finished',
+      date_from: dayOffset(-120),
+      date_to: dayOffset(0),
+      limit: 20,
+      ordering: '-event_date'
+    });
+    const jogos = (fixtures.results || []).slice(0, 10);
+
+    // Para cada jogo, busca stats em paralelo
+    const comStats = await Promise.allSettled(
+      jogos.map(async ev => {
+        const base = normEvento(ev);
+        try {
+          const stats = await bsd(`/events/${ev.id}/stats/`);
+          const isHome = String(base.home_team_id) === String(teamId);
+          const side = isHome ? (stats.stats?.home || stats.home || {}) : (stats.stats?.away || stats.away || {});
+          const opp  = isHome ? base.away_team : base.home_team;
+          const oppId = isHome ? base.away_team_id : base.home_team_id;
+          const hs = base.home_score, as_ = base.away_score;
+          let result = '—';
+          if (hs !== null && as_ !== null) {
+            const ts = isHome ? hs : as_, os = isHome ? as_ : hs;
+            result = ts > os ? 'W' : ts < os ? 'L' : 'D';
+          }
+          return {
+            id: ev.id,
+            date: base.event_date,
+            opponent: opp,
+            opponent_id: oppId,
+            score: hs !== null ? `${hs}-${as_}` : '—',
+            result,
+            corners:    side.corner_kicks    ?? side.corners        ?? null,
+            shots:      side.total_shots     ?? side.shots           ?? null,
+            shots_on:   side.shots_on_target ?? side.shots_on        ?? null,
+            fouls:      side.fouls           ?? null,
+            passes:     side.passes          ?? side.total_passes    ?? null,
+            possession: side.ball_possession ?? side.possession      ?? null,
+            goals_for:  isHome ? hs : as_,
+            goals_against: isHome ? as_ : hs,
+            yellow:     side.yellow_cards    ?? null,
+          };
+        } catch(_) {
+          const isHome = String(base.home_team_id) === String(teamId);
+          const hs = base.home_score, as_ = base.away_score;
+          let result = '—';
+          if (hs !== null && as_ !== null) {
+            const ts = isHome ? hs : as_, os = isHome ? as_ : hs;
+            result = ts > os ? 'W' : ts < os ? 'L' : 'D';
+          }
+          return {
+            id: ev.id,
+            date: base.event_date,
+            opponent: isHome ? base.away_team : base.home_team,
+            opponent_id: isHome ? base.away_team_id : base.home_team_id,
+            score: hs !== null ? `${hs}-${as_}` : '—',
+            result,
+            corners: null, shots: null, shots_on: null,
+            fouls: null, passes: null, possession: null,
+            goals_for: isHome ? hs : as_,
+            goals_against: isHome ? as_ : hs,
+            yellow: null,
+          };
+        }
+      })
+    );
+
+    const data = comStats
+      .filter(r => r.status === 'fulfilled')
+      .map(r => r.value)
+      .reverse(); // cronológico
+
+    res.json({ jogos: data, total: data.length, team_id: teamId });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+
 app.get('/api/jogadores', async (req, res) => {
   try {
     const { team_id, position, name, nationality_code, limit = 200, team_name } = req.query;
