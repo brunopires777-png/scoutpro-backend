@@ -1036,10 +1036,25 @@ async function selecionarTime(id,name,logo){
   document.getElementById('step2-results')?.remove();
   const destBox=document.getElementById('dest-box');
   if(destBox) destBox.style.display='none';
+  const destEsp=document.getElementById('dest-especificos-box');
+  if(destEsp) destEsp.style.display='none';
+  // Gráfico de desempenho — cria/reseta container acima do elenco
+  let grafBox=document.getElementById('grafico-time-box');
+  if(!grafBox){
+    grafBox=document.createElement('div');
+    grafBox.id='grafico-time-box';
+    document.getElementById('step2').parentNode.insertBefore(grafBox, document.getElementById('step2'));
+  }
+  grafBox.innerHTML='';
   document.getElementById('step2').style.display='block';
   document.getElementById('step3').innerHTML='';
   document.getElementById('lbl-team').textContent=name;
-  setTimeout(()=>document.getElementById('step2').scrollIntoView({behavior:'smooth',block:'start'}),80);
+  setTimeout(()=>{
+    if(grafBox) grafBox.scrollIntoView({behavior:'smooth',block:'start'});
+    else document.getElementById('step2').scrollIntoView({behavior:'smooth',block:'start'});
+  },80);
+  // Carrega gráfico em background sem bloquear elenco
+  carregarGraficoTime(id, name);
   document.getElementById('lbl-sub').textContent='Selecione o jogador';
   document.getElementById('squad-area').innerHTML=`<div class="loading"><div class="spinner-wrap"><div class="spinner"></div><div class="spinner-pct">0%</div></div><p>Carregando elenco de <strong>${name}</strong>...</p></div>`;
   try{localStorage.removeItem('sp4_squad_'+id);}catch(e){}
@@ -2661,7 +2676,14 @@ function renderHist(){
 function limparHist(){if(!confirm('Limpar histórico?'))return;localStorage.removeItem('sp4_hist');renderHist();toast('Histórico limpo');}
 
 /* ── UTILS ── */
-function voltarStep1(){document.getElementById('step2').style.display='none';document.getElementById('step1').style.display='block';document.getElementById('step3').innerHTML='';}
+function voltarStep1(){
+  document.getElementById('step2').style.display='none';
+  document.getElementById('step1').style.display='block';
+  document.getElementById('step3').innerHTML='';
+  document.getElementById('grafico-time-box')?.remove();
+  renderDestaques();
+  renderDestaquesEspecificos();
+}
 function initials(n){return(n||'?').split(' ').map(w=>w[0]).join('').substring(0,2).toUpperCase();}
 function esc(s){return(s||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'");}
 function fmtTs(ts){if(!ts)return'';const d=new Date(ts);return`${d.getDate().toString().padStart(2,'0')}/${(d.getMonth()+1).toString().padStart(2,'0')} ${d.getHours().toString().padStart(2,'0')}:${d.getMinutes().toString().padStart(2,'0')}`;}
@@ -3132,22 +3154,26 @@ async function verStatsJogadorDireto(playerId, playerName, teamName, playerPos){
                 const hh=+p[0],aa=+p[1];
                 if(!isNaN(hh)&&!isNaN(aa)){
                   if(j.opponent&&j.opponent.includes(' × ')){
-                    // Descobre o lado pelo nome: time pesquisado DEPOIS do × = visitante
                     const opp=j.opponent.toLowerCase();
                     const mt=(typeof teamName==='string'?teamName:'').toLowerCase().split(' ')[0];
                     const afterX=(opp.split(' × ')[1]||'');
-                    jr=mt&&afterX.startsWith(mt)
-                      ?(aa>hh?'W':aa<hh?'L':'D')   // visitante
-                      :(hh>aa?'W':hh<aa?'L':'D');   // casa
+                    jr=mt&&afterX.startsWith(mt)?(aa>hh?'W':aa<hh?'L':'D'):(hh>aa?'W':hh<aa?'L':'D');
                   }
-                  // Se result veio do servidor mas é '—', nada a fazer — deixa neutro
                 }
               }
             }
-            const rc=jr==='W'?'#39ff14':jr==='L'?'var(--red)':'#b0b0b0';
+            // Extrai só o adversário (igual verStats)
+            let oppDisp=j.opponent||'—';
+            if(oppDisp.includes(' × ')){
+              const pts=oppDisp.split(' × ');
+              const mt=(typeof teamName==='string'?teamName:'').toLowerCase().split(' ')[0];
+              oppDisp=pts[0].toLowerCase().includes(mt)?pts[1]:pts[0];
+            }
+            const oppColor=jr==='W'?'var(--green)':jr==='L'?'var(--red)':'var(--text2)';
+            const sc=jr==='W'?'score-w':jr==='L'?'score-l':'score-d';
             return `<tr style="border-bottom:1px solid rgba(30,30,30,.8)">
-              <td style="padding:9px 8px;font-size:12px;font-weight:600">${j.opponent||'—'}</td>
-              <td style="padding:9px 8px;text-align:center;font-family:'Bebas Neue',sans-serif;font-size:16px;color:${rc}">${j.score||'—'}</td>
+              <td style="padding:9px 8px;font-size:12px;color:${oppColor};font-weight:${jr==='W'||jr==='L'?'600':'400'}">${oppDisp}</td>
+              <td style="padding:9px 8px;text-align:center"><span class="${sc}">${j.score||'—'}</span></td>
               ${cols.map(col=>{
                 const v=j[col.key];
                 const _n=parseFloat(v);const _blue=!isNaN(_n)&&_n>=1&&_n<=15;
@@ -3559,6 +3585,120 @@ async function enriquecerPredicao(eventId, containerEl) {
       </div>`;
     containerEl.appendChild(div);
   } catch(_) {}
+}
+
+// ── GRÁFICO DE DESEMPENHO DO TIME ─────────────────────────────────────────
+async function carregarGraficoTime(teamId, teamName) {
+  const box = document.getElementById('grafico-time-box');
+  if (!box) return;
+  box.innerHTML = `<div class="card" style="margin-bottom:12px"><div class="loading" style="padding:20px 0"><div class="spinner-wrap"><div class="spinner"></div></div><p style="font-size:12px">Carregando desempenho de ${teamName}...</p></div></div>`;
+
+  try {
+    const r = await fetch(`${API}/api/times/${teamId}/grafico`);
+    const d = await r.json();
+    const jogos = d.jogos || [];
+    if (!jogos.length) { box.innerHTML = ''; return; }
+
+    const metrics = [
+      {key:'corners',       label:'Escanteios'},
+      {key:'shots',         label:'Chutes'},
+      {key:'shots_on',      label:'Chutes no Gol'},
+      {key:'fouls',         label:'Faltas'},
+      {key:'passes',        label:'Passes'},
+      {key:'goals_for',     label:'Gols Pró'},
+      {key:'goals_against', label:'Gols Contra'},
+      {key:'possession',    label:'Posse %'},
+      {key:'yellow',        label:'Cartões'},
+    ];
+
+    let currentMetric = 'corners';
+
+    function buildChart(metric) {
+      const m = metrics.find(x => x.key === metric);
+      const vals = jogos.map(j => j[metric] ?? 0);
+      const maxV = Math.max(...vals, 1);
+      const avg = vals.filter(v=>v>0).reduce((a,b)=>a+b,0) / (vals.filter(v=>v>0).length||1);
+
+      const bars = jogos.map((j,i) => {
+        const v = j[metric] ?? 0;
+        const pct = (v / maxV * 100).toFixed(1);
+        const color = j.result==='W' ? '#39ff14' : j.result==='L' ? '#c0392b' : '#888';
+        const dt = j.date ? new Date(j.date).toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',timeZone:'America/Sao_Paulo'}) : '';
+        const score = j.score || '—';
+        const scoreColor = j.result==='W'?'#39ff14':j.result==='L'?'#c0392b':'#999';
+        const oppId = j.opponent_id;
+        const shield = oppId
+          ? `<img src="${API}/img/team/${oppId}/" style="width:26px;height:26px;object-fit:contain;border-radius:50%;background:rgba(255,255,255,.06);padding:2px" onerror="this.outerHTML='<span style=font-size:14px>⚽</span>'">`
+          : `<span style="font-size:14px">⚽</span>`;
+        return `<div style="display:flex;flex-direction:column;align-items:center;flex:1;min-width:0">
+          <div style="font-size:11px;font-weight:600;color:#ccc;margin-bottom:3px;min-height:16px">${v>0?v+(metric==='possession'?'%':''):''}</div>
+          <div style="width:100%;display:flex;align-items:flex-end;height:120px">
+            <div class="grafico-bar" data-pct="${pct}" style="width:100%;height:0%;background:${color};border-radius:4px 4px 0 0;transition:height .8s cubic-bezier(.22,.61,.36,1);transform-origin:bottom"></div>
+          </div>
+          <div style="height:1px;width:100%;background:rgba(255,255,255,.1);margin-bottom:6px"></div>
+          <div style="margin-bottom:3px">${shield}</div>
+          <div style="font-size:9px;color:#555">${dt}</div>
+          <div style="font-size:10px;font-weight:600;color:${scoreColor}">${score}</div>
+        </div>`;
+      }).join('');
+
+      const avgPct = (avg / maxV * 100).toFixed(1);
+      const selectorBtns = metrics.map(m => `<button onclick="window._trocarGrafico('${m.key}')" style="font-size:11px;padding:4px 10px;border:0.5px solid rgba(255,255,255,.15);border-radius:16px;background:${m.key===metric?'rgba(57,255,20,.15)':'transparent'};color:${m.key===metric?'var(--green)':'#666'};cursor:pointer;white-space:nowrap">${m.label}</button>`).join('');
+
+      return `<div class="card" style="margin-bottom:12px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+          <div>
+            <div style="font-family:'Bebas Neue',sans-serif;font-size:16px;color:var(--green);letter-spacing:.06em">${teamName}</div>
+            <div style="font-size:11px;color:#555">Últimos confrontos · ${m.label}</div>
+          </div>
+        </div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px">${selectorBtns}</div>
+        <div style="position:relative">
+          <div style="display:flex;gap:4px;align-items:flex-end;height:136px;padding-bottom:0">${bars}</div>
+          <div style="position:absolute;left:0;right:0;border-top:1.5px dashed rgba(255,255,255,.2);pointer-events:none" id="avg-dashed-line" data-pct="${avgPct}">
+            <span style="font-size:9px;color:#555;background:transparent;padding:0 3px">méd ${avg.toFixed(1)}${metric==='possession'?'%':''}</span>
+          </div>
+        </div>
+        <div style="display:flex;gap:14px;margin-top:10px;flex-wrap:wrap">
+          <div style="display:flex;align-items:center;gap:5px;font-size:11px;color:#666"><div style="width:10px;height:10px;border-radius:2px;background:#39ff14"></div>Vitória</div>
+          <div style="display:flex;align-items:center;gap:5px;font-size:11px;color:#666"><div style="width:10px;height:10px;border-radius:2px;background:#888"></div>Empate</div>
+          <div style="display:flex;align-items:center;gap:5px;font-size:11px;color:#666"><div style="width:10px;height:10px;border-radius:2px;background:#c0392b"></div>Derrota</div>
+          <div style="display:flex;align-items:center;gap:5px;font-size:11px;color:#666;margin-left:auto"><div style="width:14px;height:0;border-top:1.5px dashed rgba(255,255,255,.2)"></div>Média</div>
+        </div>
+      </div>`;
+    }
+
+    window._trocarGrafico = function(metric) {
+      currentMetric = metric;
+      const box2 = document.getElementById('grafico-time-box');
+      if (box2) {
+        box2.innerHTML = buildChart(metric);
+        // Animar barras
+        requestAnimationFrame(() => requestAnimationFrame(() => {
+          document.querySelectorAll('.grafico-bar[data-pct]').forEach(b => {
+            b.style.height = b.dataset.pct + '%';
+          });
+          // Posicionar linha de média
+          const avgLine = document.getElementById('avg-dashed-line');
+          if (avgLine) avgLine.style.bottom = avgLine.dataset.pct + '%';
+        }));
+      }
+    };
+
+    box.innerHTML = buildChart(currentMetric);
+    // Animar barras após render
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      document.querySelectorAll('.grafico-bar[data-pct]').forEach(b => {
+        b.style.height = b.dataset.pct + '%';
+      });
+      const avgLine = document.getElementById('avg-dashed-line');
+      if (avgLine) avgLine.style.bottom = avgLine.dataset.pct + '%';
+    }));
+
+  } catch(e) {
+    const box2 = document.getElementById('grafico-time-box');
+    if (box2) box2.innerHTML = '';
+  }
 }
 
 checkStatus();
