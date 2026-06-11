@@ -3635,15 +3635,15 @@ async function carregarGraficoTime(teamId, teamName) {
         // Escudo clicável — ao clicar busca o time adversário
         const shieldClick = oppId ? `onclick="window._buscarTimeGrafico('${oppId}','${oppName.replace(/'/g,"\'")}')" style="cursor:pointer"` : '';
         const shield = oppId
-          ? `<img src="${API}/img/team/${oppId}/" ${shieldClick} style="width:6px;height:6px;object-fit:contain;border-radius:50%;background:rgba(255,255,255,.06);padding:2px;cursor:pointer" onerror="this.outerHTML='<span style=font-size:14px>⚽</span>'">`
-          : `<span style="font-size:14px">⚽</span>`;
+          ? `<img src="${API}/img/team/${oppId}/" ${shieldClick} style="width:26px;height:26px;max-width:26px;max-height:26px;object-fit:contain;border-radius:50%;background:rgba(255,255,255,.06);padding:2px;cursor:pointer;display:block" onerror="this.style.display='none'">`
+          : `<span style="font-size:14px;line-height:26px;display:block;text-align:center">⚽</span>`;
         return `<div style="display:flex;flex-direction:column;align-items:center;flex:1;min-width:0;gap:0">
           <div style="font-size:12px;font-weight:700;color:#fff;margin-bottom:4px;min-height:18px;text-shadow:0 1px 4px rgba(0,0,0,.8)">${v>0?v+(metric==='possession'?'%':''):''}</div>
           <div style="width:100%;display:flex;align-items:flex-end;height:140px">
             <div class="grafico-bar" data-pct="${pct}" style="width:100%;height:0%;background:${color};border-radius:5px 5px 0 0;transition:height .8s cubic-bezier(.22,.61,.36,1);transform-origin:bottom;box-shadow:0 0 8px ${color}55"></div>
           </div>
           <div style="height:1px;width:100%;background:rgba(255,255,255,.12);margin-bottom:8px"></div>
-          <div style="margin-bottom:4px">${shield}</div>
+          <div style="width:26px;height:26px;margin-bottom:4px;overflow:hidden;flex-shrink:0">${shield}</div>
           <div style="font-size:10px;color:#888;margin-bottom:2px">${dt}</div>
           <div style="font-size:11px;font-weight:700;color:${scoreColor};background:rgba(0,0,0,.5);border-radius:4px;padding:1px 5px">${score}</div>
         </div>`;
@@ -3814,4 +3814,4 @@ document.addEventListener('keydown',e=>{if(e.key==='Enter'&&document.activeEleme
 
 
 </body>
-</html>
+  </html>
