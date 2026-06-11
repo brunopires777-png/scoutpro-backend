@@ -1481,7 +1481,14 @@ app.get('/api/times/:id/grafico', async (req, res) => {
       limit: 20,
       ordering: '-event_date'
     });
-    const jogos = (fixtures.results || []).slice(0, 10);
+    const rawJogos = fixtures.results || [];
+    // Deduplica por id antes de processar
+    const seenIds = new Set();
+    const jogos = rawJogos.filter(ev => {
+      if (seenIds.has(ev.id)) return false;
+      seenIds.add(ev.id);
+      return true;
+    }).slice(0, 10);
 
     // Para cada jogo, busca stats em paralelo
     const comStats = await Promise.allSettled(
