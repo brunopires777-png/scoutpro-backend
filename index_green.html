@@ -596,6 +596,9 @@ td.nd{color:#555;font-size:13px}
       <div id="player-area"></div>
     </div>
 
+    <!-- LISTA DE FAVORITOS -->
+    <div id="favs-box" style="display:none;margin-bottom:12px"></div>
+
     <!-- DESTAQUES ESPECÍFICOS -->
     <div id="dest-especificos-box" style="display:none;margin-bottom:12px"></div>
 
@@ -941,7 +944,7 @@ async function buscarTime(){
   const cached=DB.get(cacheKey);
   if(cached&&cached.length){
     btn.disabled=false;btn.textContent='Buscar';
-    area.innerHTML=`<div style="font-size:11px;color:var(--text2);margin-bottom:8px;display:flex;align-items:center;gap:6px">💾 <span>Resultado em cache (válido por 1h)</span></div>`+
+    area.innerHTML=`<div style="font-size:11px;color:var(--text2);margin-bottom:8px;display:flex;align-items:center;gap:6px">💾 <span>Resultado em cache (válido por 5h)</span></div>`+
       `<div class="team-list">${cached.map(t=>`
         <div class="team-item" onclick="selecionarTime(${t.id},'${esc(t.name)}','')">
           <div class="team-left">
@@ -1015,7 +1018,7 @@ async function buscarTime(){
   // Salva no cache por 1 hora
   try{
     const cacheKey='teamcache_'+q.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/\s+/g,'_');
-    DB.set(cacheKey,times,3600000);
+    DB.set(cacheKey,times,18000000);
   }catch(_){}
 
   area.innerHTML=`<div class="team-list">${times.map(t=>`
@@ -1111,6 +1114,7 @@ async function selecionarTime(id,name,logo){
                   :`<div style="width:48px;height:48px;border-radius:50%;background:var(--bg4);border:2px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:18px">👤</div>`}
                 <div style="position:absolute;bottom:1px;right:1px;width:13px;height:13px;border-radius:50%;border:2px solid ${circleBorder};background:${circleColor};box-shadow:${circleGlow}"></div>
               </div>
+              <button class="fav-star" data-pid="${p.id}" onclick="event.stopPropagation();favToggle('${p.id}','${esc(p.name)}','${esc(p.photo||'')}','${esc(p.position||'')}','${esc(String(id))}','${esc(String(name||''))}')" style="background:none;border:none;cursor:pointer;font-size:16px;line-height:1;padding:0;margin-bottom:2px;display:block;width:100%;text-align:center;color:${favGet().find(f=>String(f.id)===String(p.id))?'#ffd740':'rgba(255,255,255,0.25)'};" title="${favGet().find(f=>String(f.id)===String(p.id))?'Remover dos favoritos':'Adicionar aos favoritos'}">${favGet().find(f=>String(f.id)===String(p.id))?'★':'☆'}</button>
               <div class="pc-name">${p.name}</div>
               <div class="pc-pos">${p.position||'—'}</div>
             </div>`;
@@ -1189,7 +1193,8 @@ async function verStats(playerId,playerName,playerPhoto,playerPos,teamNameOverri
     ? (histGet().find(e=>e.playerId==playerId)?.teamId || _effectiveTeamId || '')
     : (_effectiveTeamId || '');
   const ckey=`stats_${playerId}_${_teamId}`;
-  try{localStorage.removeItem('sp4_'+ckey);}catch(e){}
+  // Só apaga cache quando é busca direta do elenco (não dos destaques/favoritos — preserva cache de 12h)
+  if(!_fromDest){try{localStorage.removeItem('sp4_'+ckey);}catch(e){}}
   try{
     const data=await apiFetch(`/api/player/${playerId}/stats?teamId=${_teamId}`,ckey,43200000);
     clearInterval(_vsIv);
@@ -2150,7 +2155,7 @@ async function carregarClassificacao(){
   if(!liga){el.innerHTML=`<div class="empty"><div class="empty-icon">📊</div><p>Selecione uma liga</p></div>`;return;}
   el.innerHTML=`<div class="loading"><div class="spinner-wrap"><div class="spinner"></div><div class="spinner-pct">0%</div></div><p>Carregando tabela...</p></div>`;
   try{
-    const data=await apiFetch(`/api/leagues/${liga}/standings`,`standings_${liga}`,3600000);
+    const data=await apiFetch(`/api/leagues/${liga}/standings`,`standings_${liga}`,18000000);
     const rows=data.standings||[];
     if(!rows.length){el.innerHTML=`<div class="empty"><p>Tabela não disponível</p></div>`;return;}
     el.innerHTML=`<div style="overflow-x:auto"><table class="std-table">
@@ -2194,7 +2199,7 @@ async function carregarCopa(){
   try{
     // Busca jogos da Copa do Mundo
     const [jogosR] = await Promise.allSettled([
-      apiFetch('/api/worldcup/matches',null,3600000)
+      apiFetch('/api/worldcup/matches',null,18000000)
     ]);
     const jogos = jogosR.status==='fulfilled' ? (jogosR.value?.results||[]) : [];
 
@@ -2708,7 +2713,70 @@ const DEST_CATS = [
   {key:'🟨',  lbl:'Cartões Amarelos', min:0.5, color:'#ffd740', emoji:'🟨'},
 ];
 
-function renderDestaquesEspecificos() {
+/* ── FAVORITOS ── */
+function favGet(){try{return JSON.parse(localStorage.getItem('sp4_favs')||'[]');}catch(e){return[];}}
+function favSet(list){try{localStorage.setItem('sp4_favs',JSON.stringify(list));}catch(e){}}
+function favAdd(player){
+  const list=favGet();
+  if(list.find(f=>String(f.id)===String(player.id)))return;
+  list.unshift(player);
+  favSet(list);
+  renderFavoritos();
+  toast('⭐ '+player.name+' adicionado aos favoritos');
+}
+function favRemove(pid){
+  const list=favGet().filter(f=>String(f.id)!==String(pid));
+  favSet(list);
+  renderFavoritos();
+  toast('Removido dos favoritos');
+}
+function favToggle(pid,name,photo,position,teamId,teamName){
+  const list=favGet();
+  const exists=list.find(f=>String(f.id)===String(pid));
+  if(exists){
+    favRemove(pid);
+  } else {
+    favAdd({id:String(pid),name,photo:photo||'',position:position||'',teamId:String(teamId||''),teamName:teamName||''});
+  }
+  // Atualiza visual da estrela no elenco (sem re-renderizar tudo)
+  document.querySelectorAll(`.fav-star[data-pid="${pid}"]`).forEach(el=>{
+    const isFav=favGet().find(f=>String(f.id)===String(pid));
+    el.textContent=isFav?'★':'☆';
+    el.style.color=isFav?'#ffd740':'rgba(255,255,255,0.3)';
+    el.title=isFav?'Remover dos favoritos':'Adicionar aos favoritos';
+  });
+}
+function renderFavoritos(){
+  const box=document.getElementById('favs-box');
+  if(!box)return;
+  const list=favGet();
+  if(!list.length){box.style.display='none';return;}
+  const cards=list.map(f=>{
+    const photo=f.photo||`${API}/img/player/${f.id}`;
+    return `<div onclick="verScoutDoDestaqueDir('${f.name.replace(/'/g,"\\'")}','${(f.teamName||'').replace(/'/g,"\\'")}','${f.id}')" style="flex-shrink:0;width:110px;background:rgba(255,215,64,.05);border:1px solid rgba(255,215,64,.2);border-radius:12px;padding:10px 8px;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:6px;position:relative">
+      <button onclick="event.stopPropagation();favToggle('${f.id}','${f.name.replace(/'/g,"\\'")}','${photo}','${f.position}','${f.teamId}','${(f.teamName||'').replace(/'/g,"\\'")}' )" style="position:absolute;top:5px;right:6px;background:none;border:none;cursor:pointer;font-size:14px;color:#ffd740;line-height:1;padding:0" title="Remover">★</button>
+      <div style="width:60px;height:60px;border-radius:50%;overflow:hidden;border:2px solid rgba(255,215,64,.4)">
+        <img src="${photo}" style="width:100%;height:100%;object-fit:cover" onerror="this.parentElement.innerHTML='<span style=font-size:26px;line-height:58px;text-align:center;display:block>⚽</span>'">
+      </div>
+      <div style="font-size:11px;font-weight:700;color:#ddd;text-align:center;line-height:1.2">${f.name}</div>
+      <div style="font-size:10px;color:#666;text-align:center">${f.teamName||''}</div>
+      <div style="font-size:10px;color:#888;text-align:center">${f.position||''}</div>
+    </div>`;
+  }).join('');
+  box.innerHTML=`<div class="card" style="padding:14px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+      <div>
+        <div style="font-family:'Bebas Neue',sans-serif;font-size:16px;color:#ffd740;letter-spacing:.06em">⭐ LISTA DE FAVORITOS</div>
+        <div style="font-size:10px;color:#555;margin-top:2px">${list.length} jogador${list.length!==1?'es':''} favoritado${list.length!==1?'s':''}</div>
+      </div>
+      <button onclick="if(confirm('Limpar todos os favoritos?')){favSet([]);renderFavoritos();toast('Favoritos limpos');}" style="background:rgba(255,23,68,.1);border:1px solid rgba(255,23,68,.3);color:#ff4466;border-radius:10px;padding:5px 12px;font-size:11px;font-weight:700;cursor:pointer">✕ Limpar</button>
+    </div>
+    <div style="display:flex;gap:8px;overflow-x:auto;padding-bottom:6px;-webkit-overflow-scrolling:touch;scrollbar-width:none">${cards}</div>
+  </div>`;
+  box.style.display='block';
+}
+
+
   const h = histGet();
   const box = document.getElementById('dest-especificos-box');
   if (!box || !h.length) return;
@@ -3596,10 +3664,7 @@ async function carregarGraficoTime(teamId, teamName) {
   try {
     const r = await fetch(`${API}/api/times/${teamId}/grafico`);
     const d = await r.json();
-    const jogosRaw = d.jogos || [];
-    // Deduplica por id
-    const seen = new Set();
-    const jogos = jogosRaw.filter(j => { if(seen.has(j.id)) return false; seen.add(j.id); return true; });
+    const jogos = d.jogos || [];
     if (!jogos.length) { box.innerHTML = ''; return; }
 
     const metrics = [
@@ -3741,6 +3806,7 @@ checkStatus();
 carregarLigas();
 renderDestaques();
 renderDestaquesEspecificos();
+renderFavoritos();
 setInterval(checkStatus,30000);
 document.addEventListener('keydown',e=>{if(e.key==='Enter'&&document.activeElement.id==='inp-team')buscarTime();if(e.key==='Enter'&&document.activeElement.id==='inp-arbitro')buscarArbitro();});
 </script>
