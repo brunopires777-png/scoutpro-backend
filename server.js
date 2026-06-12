@@ -1473,16 +1473,17 @@ app.get('/api/times/:id/jogos', async (req, res) => {
 app.get('/api/times/:id/grafico', async (req, res) => {
   try {
     const teamId = req.params.id;
-    // Busca últimos 20 jogos finalizados (todas as competições)
+    // Busca últimos jogos finalizados de QUALQUER liga/campeonato usando team_id
+    // team_id retorna jogos onde o time jogou em casa OU fora — sem duplicação
     const fixtures = await bsd(`/teams/${teamId}/fixtures/`, {
       status: 'finished',
-      date_from: dayOffset(-120),
+      date_from: dayOffset(-180),
       date_to: dayOffset(0),
       limit: 20,
       ordering: '-event_date'
     });
     const rawJogos = fixtures.results || [];
-    // Deduplica por id antes de processar
+    // Deduplica por id (garante sem duplicatas independente do comportamento da BSD)
     const seenIds = new Set();
     const jogos = rawJogos.filter(ev => {
       if (seenIds.has(ev.id)) return false;
