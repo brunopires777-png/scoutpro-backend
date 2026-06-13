@@ -2028,6 +2028,56 @@ function fecharMiniScout(ev) {
   document.body.style.overflow = '';
 }
 
+async function abrirScoutEscalacao(playerName, teamName, playerId) {
+  const ov = document.getElementById('mini-scout-overlay');
+  const box = document.getElementById('mini-scout-content');
+  if (!ov || !box) return;
+  box.innerHTML = '<div class="spinner-wrap"><div class="spinner"></div></div>';
+  ov.style.display = 'block';
+  try {
+    const photo = API + '/img/player/' + playerId;
+    const isFav = favGet().find(function(f){ return String(f.id) === String(playerId); });
+    box.innerHTML = '<div>'
+      + '<div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;padding-bottom:12px;border-bottom:1px solid rgba(57,255,20,.15);position:relative">'
+      + '<div style="width:56px;height:56px;border-radius:50%;overflow:hidden;border:2px solid rgba(57,255,20,.3);flex-shrink:0">'
+      + '<img src="'+photo+'" style="width:100%;height:100%;object-fit:cover" onerror="this.parentElement.innerHTML=\'<span style=font-size:24px;line-height:52px;text-align:center;display:block>👤</span>\'">'
+      + '</div>'
+      + '<div style="flex:1"><div style="font-family:\'Bebas Neue\',sans-serif;font-size:20px;letter-spacing:.04em">'+playerName+'</div>'
+      + '<div style="font-size:12px;color:#888">'+teamName+'</div></div>'
+      + '<button id="ms-fav-btn" onclick="(function(){var pid=\''+playerId+'\';var pn=\''+playerName.replace(/'/g,"\\'")+'\';var tn=\''+teamName.replace(/'/g,"\\'")+'\';favToggle(pid,pn,\''+photo+'\',\'\',\'\',tn);var b=document.getElementById(\'ms-fav-btn\');var iF=favGet().find(function(f){return String(f.id)===String(pid);});b.textContent=iF?\'★\':\'☆\';b.style.color=iF?\'#ffd740\':\'rgba(255,255,255,0.35)\';})()" style="background:none;border:none;cursor:pointer;font-size:26px;color:'+(isFav?'#ffd740':'rgba(255,255,255,0.35)')+';line-height:1;padding:4px;position:absolute;top:0;right:0">'+(isFav?'★':'☆')+'</button>'
+      + '</div>'
+      + '<div id="ms-stats-area"><div class="spinner-wrap"><div class="spinner"></div></div></div>'
+      + '</div>';
+
+    // Busca stats — com fallback sem teamId para seleções
+    let data = await apiFetch('/api/player/'+playerId+'/stats', 'stats_'+playerId+'_', 43200000);
+    const statsArea = document.getElementById('ms-stats-area');
+    if (!statsArea) return;
+    const jogos = data.jogos || [];
+    if (!jogos.length) {
+      statsArea.innerHTML = '<div style="color:#666;text-align:center;padding:20px;font-size:13px">Sem dados de stats disponíveis para este jogador</div>';
+      return;
+    }
+    const isGk = isGoleiro(data.position || '');
+    const cols = isGk ? GK_COLS : LINE_COLS;
+    const snap = data.snapshot || {};
+    statsArea.innerHTML = '<div style="width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch">'
+      + '<table style="min-width:400px;border-collapse:collapse;font-size:12px">'
+      + '<thead><tr style="border-bottom:1px solid rgba(57,255,20,.2)">'
+      + '<th style="padding:6px 5px;text-align:left;color:#666;font-size:10px;white-space:nowrap">ADV</th>'
+      + '<th style="padding:6px 5px;text-align:center;color:#666;font-size:10px;white-space:nowrap">RES</th>'
+      + cols.map(function(c){ return '<th style="padding:6px 5px;text-align:center;color:#666;font-size:10px;white-space:nowrap">'+c.label+'</th>'; }).join('')
+      + '</tr></thead><tbody>'
+      + _renderScoutRows(jogos.slice(0,7), cols, teamName)
+      + '<tr style="background:rgba(30,30,30,.6)"><td colspan="2" style="padding:6px 5px;font-size:10px;color:#888">MÉD</td>'
+      + _renderAvgCells(cols, snap)
+      + '</tr></tbody></table></div>';
+  } catch(e) {
+    const statsArea = document.getElementById('ms-stats-area');
+    if (statsArea) statsArea.innerHTML = '<div style="color:#ff4444;text-align:center;padding:20px">Erro ao carregar dados</div>';
+  }
+}
+
 function renderMtEscalacao(d){
   const el=document.getElementById('mt-escalacao');
   const lineups=d.lineups?.lineups;
@@ -2044,7 +2094,7 @@ function renderMtEscalacao(d){
       const tid=teamId||'';
       const tn=(teamName||'').replace(/'/g,"\\'");
       const pn=pname.replace(/'/g,"\\'");
-      const clickAttr=pid?'style="cursor:pointer;color:var(--green);text-decoration:underline dotted rgba(57,255,20,.4)" onclick="verScoutDoDestaqueDir(\''+pn+'\',\''+tn+'\',\''+pid+'\')"':'';
+      const clickAttr=pid?'style="cursor:pointer;color:var(--green);text-decoration:underline dotted rgba(57,255,20,.4)" onclick="abrirScoutEscalacao(\''+pn+'\',\''+tn+'\',\''+pid+'\')"':'';
       return '<div class="lu-player"'+(opacity?' style="opacity:'+opacity+'"':'')+'>'
         +'<span class="lu-num">'+(p.jersey_number||'')+'</span>'
         +'<span class="lu-pos pos-'+ppos+'">'+ppos+'</span>'
