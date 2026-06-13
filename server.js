@@ -697,7 +697,10 @@ const LIGAS_BLOQUEADAS = [
 function filtrarLigasBloqueadas(jogos) {
   if (!jogos || !jogos.length) return jogos;
   return jogos.filter(j => {
-    const liga = (j.league || j.league_name || '').toLowerCase();
+    const liga = (
+      (typeof j.league === 'string' ? j.league : j.league?.name || '') ||
+      j.league_name || ''
+    ).toLowerCase();
     return !LIGAS_BLOQUEADAS.some(b => liga.includes(b));
   });
 }
