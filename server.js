@@ -1396,19 +1396,55 @@ app.get('/api/h2h', async (req, res) => {
   try {
     const { home_id, away_id } = req.query;
     if (!home_id || !away_id) return res.status(400).json({ error: 'home_id e away_id obrigatórios' });
-    const dateFrom = new Date(Date.now() - 730 * 86400000).toISOString().slice(0,10);
-    const data = await fetch(
-      `https://sports.bzzoiro.com/api/events/?home_team_id=${home_id}&away_team_id=${away_id}&date_from=${dateFrom}&limit=10`,
-      { headers: { Authorization: `Token ${BSD_TOKEN}` } }
-    ).then(r => r.json());
-    // Tenta também confronto invertido
-    const data2 = await fetch(
-      `https://sports.bzzoiro.com/api/events/?home_team_id=${away_id}&away_team_id=${home_id}&date_from=${dateFrom}&limit=10`,
-      { headers: { Authorization: `Token ${BSD_TOKEN}` } }
-    ).then(r => r.json());
+    const dateFrom = new Date(Date.now() - 1825 * 86400000).toISOString().slice(0,10); // 5 anos
+    const [data, data2] = await Promise.all([
+      fetch(`https://sports.bzzoiro.com/api/events/?home_team_id=${home_id}&away_team_id=${away_id}&date_from=${dateFrom}&status=finished&limit=10`,
+        { headers: { Authorization: `Token ${BSD_TOKEN}` } }).then(r => r.json()),
+      fetch(`https://sports.bzzoiro.com/api/events/?home_team_id=${away_id}&away_team_id=${home_id}&date_from=${dateFrom}&status=finished&limit=10`,
+        { headers: { Authorization: `Token ${BSD_TOKEN}` } }).then(r => r.json())
+    ]);
     const all = [...(data.results||[]), ...(data2.results||[])]
-      .sort((a,b) => new Date(b.event_date) - new Date(a.event_date));
-    res.json({ results: all, count: all.length });
+      .filter(j => j.home_score != null && j.away_score != null)
+      .sort((a,b) => new Date(b.event_date) - new Date(a.event_date))
+      .slice(0, 10);
+
+    // Normaliza jogos para o formato esperado pelo frontend
+    const jogos = all.map(j => {
+      const ev = normEvento(j);
+      return {
+        id: j.id,
+        event_date: j.event_date,
+        home_team: ev.home_team || j.home_team?.name || '',
+        away_team: ev.away_team || j.away_team?.name || '',
+        home_team_id: ev.home_team_id || j.home_team?.id,
+        away_team_id: ev.away_team_id || j.away_team?.id,
+        home_score: ev.home_score,
+        away_score: ev.away_score,
+        league: ev.league || j.league?.name || ''
+      };
+    });
+
+    // Estatísticas do H2H
+    let t1w = 0, t2w = 0, draws = 0, totalGoals = 0;
+    jogos.forEach(j => {
+      const homeIsT1 = String(j.home_team_id) === String(home_id);
+      const t1s = homeIsT1 ? j.home_score : j.away_score;
+      const t2s = homeIsT1 ? j.away_score : j.home_score;
+      if (t1s > t2s) t1w++;
+      else if (t2s > t1s) t2w++;
+      else draws++;
+      totalGoals += (j.home_score || 0) + (j.away_score || 0);
+    });
+
+    res.json({
+      jogos,
+      stats: {
+        team1_wins: t1w,
+        team2_wins: t2w,
+        draws,
+        avg_goals: jogos.length ? (totalGoals / jogos.length).toFixed(1) : 0
+      }
+    });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
