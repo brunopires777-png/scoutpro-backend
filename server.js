@@ -2010,26 +2010,17 @@ app.listen(PORT, () => {
 
 app.get('/api/ping', (req, res) => res.json({ ok: true, ts: Date.now() }));
 
-// Endpoint de tradução via Claude (evita CORS do browser)
+// Endpoint de tradução via MyMemory (gratuito, sem chave)
 app.post('/api/traduzir', async (req, res) => {
   try {
     const { texto } = req.body;
     if (!texto) return res.status(400).json({ error: 'texto obrigatório' });
-    const resp = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': process.env.ANTHROPIC_API_KEY || '',
-        'anthropic-version': '2023-06-01'
-      },
-      body: JSON.stringify({
-        model: 'claude-haiku-4-5-20251001',
-        max_tokens: 1500,
-        messages: [{ role: 'user', content: 'Traduza para português do Brasil. Retorne APENAS a tradução, sem explicações:\n\n' + texto }]
-      })
-    });
+    // MyMemory: gratuito, 5000 chars/req, 1000 req/dia
+    const encoded = encodeURIComponent(texto.slice(0, 4500));
+    const url = `https://api.mymemory.translated.net/get?q=${encoded}&langpair=en|pt-BR`;
+    const resp = await fetch(url);
     const data = await resp.json();
-    const traduzido = data.content?.[0]?.text || '';
+    const traduzido = data?.responseData?.translatedText || '';
     if (!traduzido) throw new Error('resposta vazia');
     res.json({ traduzido });
   } catch(e) {
