@@ -1473,7 +1473,6 @@ app.get('/api/times/:id/jogos', async (req, res) => {
 app.get('/api/times/:id/grafico', async (req, res) => {
   try {
     const teamId = req.params.id;
-    // Busca com limit alto para garantir 10 jogos válidos após filtrar nulos
     const fixtures = await bsd(`/teams/${teamId}/fixtures/`, {
       status: 'finished',
       date_from: dayOffset(-365),
@@ -1483,16 +1482,19 @@ app.get('/api/times/:id/grafico', async (req, res) => {
     });
     const rawJogos = fixtures.results || [];
 
-    // Deduplica por id e filtra imediatamente jogos sem placar
+    // Deduplica por id e filtra jogos sem placar
     const seenIds = new Set();
-    const jogos = rawJogos.filter(ev => {
+    const jogosValidos = rawJogos.filter(ev => {
       if (seenIds.has(ev.id)) return false;
       seenIds.add(ev.id);
       const base = normEvento(ev);
-      // Só aceita jogos com placar real registrado
       return base.home_score !== null && base.away_score !== null
           && base.home_score !== undefined && base.away_score !== undefined;
-    }).slice(0, 10);
+    });
+
+    // Ordena do mais recente para o mais antigo e pega os 10 primeiros
+    jogosValidos.sort((a, b) => new Date(b.event_date || b.date || 0) - new Date(a.event_date || a.date || 0));
+    const jogos = jogosValidos.slice(0, 10);
 
     // Para cada jogo, busca stats em paralelo
     const comStats = await Promise.allSettled(
