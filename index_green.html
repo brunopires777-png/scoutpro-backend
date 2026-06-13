@@ -2765,7 +2765,7 @@ function renderFavoritos(){
   var list=favGet();
   if(!list.length){box.style.display='none';return;}
 
-  // Agrupa por time
+  // Agrupa por time para o header categórico
   var byTeam={};
   list.forEach(function(f){
     var t=f.teamName||'Sem time';
@@ -2773,51 +2773,61 @@ function renderFavoritos(){
     byTeam[t].push(f);
   });
 
-  var teamsHtml='';
+  // Monta cards horizontais agrupados por time
+  var bodyHtml='';
   Object.keys(byTeam).sort().forEach(function(teamName){
     var players=byTeam[teamName];
     var pCards=players.map(function(f){
       var photo=f.photo||API+'/img/player/'+f.id;
       var fn=f.name.replace(/'/g,"\\'");
       var ft=(f.teamName||'').replace(/'/g,"\\'");
-      return '<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid rgba(255,255,255,.05);cursor:pointer" onclick="verScoutDoDestaqueDir(\''+fn+'\',\''+ft+'\',\''+f.id+'\')">'
-        +'<div style="width:36px;height:36px;border-radius:50%;overflow:hidden;border:1px solid rgba(255,215,64,.3);flex-shrink:0">'
-        +'<img src="'+photo+'" style="width:100%;height:100%;object-fit:cover" onerror="this.parentElement.innerHTML=\'<span style=font-size:18px;line-height:34px;text-align:center;display:block>⚽</span>\'">'
+      var fp=(f.position||'').replace(/'/g,"\\'");
+      var fph=photo.replace(/'/g,"\\'");
+      return '<div style="flex-shrink:0;width:100px;border:1px solid rgba(255,215,64,.2);border-radius:12px;padding:10px 8px;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:5px;position:relative;background:transparent">'
+        +'<button onclick="event.stopPropagation();favToggle(\''+f.id+'\',\''+fn+'\',\''+fph+'\',\''+fp+'\',\''+f.teamId+'\',\''+ft+'\')" style="position:absolute;top:5px;right:6px;background:none;border:none;cursor:pointer;font-size:14px;color:#ffd740;line-height:1;padding:0;z-index:2" title="Remover dos favoritos">★</button>'
+        +'<div onclick="verScoutDoDestaqueDir(\''+fn+'\',\''+ft+'\',\''+f.id+'\')" style="display:flex;flex-direction:column;align-items:center;gap:5px;width:100%">'
+        +'<div style="width:56px;height:56px;border-radius:50%;overflow:hidden;border:2px solid rgba(255,215,64,.4)">'
+        +'<img src="'+photo+'" style="width:100%;height:100%;object-fit:cover" onerror="this.parentElement.innerHTML=\'<span style=font-size:24px;line-height:52px;text-align:center;display:block>⚽</span>\'">'
         +'</div>'
-        +'<div style="flex:1;min-width:0">'
-        +'<div style="font-size:12px;font-weight:600;color:#ddd;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+f.name+'</div>'
-        +'<div style="font-size:10px;color:#666">'+(f.position||'')+'</div>'
+        +'<div style="font-size:11px;font-weight:700;color:#ddd;text-align:center;line-height:1.2">'+f.name+'</div>'
+        +'<div style="font-size:10px;color:#888;text-align:center">'+(f.position||'')+'</div>'
         +'</div>'
-        +'<button onclick="event.stopPropagation();favToggle(\''+f.id+'\',\''+fn+'\',\''+photo.replace(/'/g,"\\'")+'\',\''+( f.position||'').replace(/'/g,"\\'")+'\',' +'\''+f.teamId+'\',\''+ft+'\')" style="background:none;border:none;cursor:pointer;font-size:16px;color:#ffd740;flex-shrink:0;padding:0" title="Remover">★</button>'
         +'</div>';
     }).join('');
-    teamsHtml+='<div style="margin-bottom:12px">'
-      +'<div style="font-family:\'Bebas Neue\',sans-serif;font-size:13px;color:#ffd740;letter-spacing:.08em;margin-bottom:4px;padding-bottom:4px;border-bottom:1px solid rgba(255,215,64,.2)">'+teamName+'</div>'
-      +pCards
+    bodyHtml+='<div style="margin-bottom:14px">'
+      +'<div style="font-family:\'Bebas Neue\',sans-serif;font-size:12px;color:#ffd740;letter-spacing:.08em;margin-bottom:6px;padding-bottom:4px;border-bottom:1px solid rgba(255,215,64,.15)">'+teamName+'</div>'
+      +'<div style="display:flex;gap:8px;overflow-x:auto;padding-bottom:6px;-webkit-overflow-scrolling:touch;scrollbar-width:none">'+pCards+'</div>'
       +'</div>';
   });
 
   box.innerHTML='<div class="card" style="padding:14px">'
     +'<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">'
-    +'<div style="display:flex;align-items:center;gap:8px;cursor:pointer" onclick="toggleFavs()">'
+    +'<div style="display:flex;align-items:center;gap:8px;cursor:pointer;flex:1" onclick="toggleFavs()">'
     +'<span style="font-family:\'Bebas Neue\',sans-serif;font-size:16px;color:#ffd740;letter-spacing:.06em">⭐ LISTA DE FAVORITOS</span>'
-    +'<span id="favs-chevron" style="color:#ffd740;font-size:14px">'+(_favsExpanded?'▾':'▸')+'</span>'
+    +'<span id="favs-chevron" style="color:#ffd740;font-size:18px;line-height:1">'+(_favsExpanded?'▾':'▸')+'</span>'
     +'<span style="font-size:10px;color:#555">'+list.length+' jogador'+(list.length!==1?'es':'')+'</span>'
     +'</div>'
     +'<button onclick="if(confirm(\'Limpar todos os favoritos?\')){favSet([]);renderFavoritos();toast(\'Favoritos limpos\');}" style="background:rgba(255,23,68,.1);border:1px solid rgba(255,23,68,.3);color:#ff4466;border-radius:10px;padding:4px 10px;font-size:11px;font-weight:700;cursor:pointer">✕</button>'
     +'</div>'
     +'<div id="favs-body" style="display:'+(_favsExpanded?'block':'none')+'">'
-    +teamsHtml
+    +bodyHtml
     +'</div>'
     +'</div>';
   box.style.display='block';
 }
 
+var _destExpanded = true;
+function toggleDest(){
+  _destExpanded=!_destExpanded;
+  var body=document.getElementById('dest-esp-body');
+  var icon=document.getElementById('dest-esp-chevron');
+  if(body){ body.style.display=_destExpanded?'block':'none'; }
+  if(icon){ icon.textContent=_destExpanded?'▾':'▸'; }
+}
 function renderDestaquesEspecificos() {
   const h = histGet();
   const box = document.getElementById('dest-especificos-box');
   if (!box || !h.length) return;
-  // Deduplica por playerId (fonte da verdade) — evita mesmo jogador com times diferentes
   const seen = new Map();
   h.forEach(e => {
     const k = e.playerId || (e.playerName+'_'+e.position);
@@ -2841,7 +2851,7 @@ function renderDestaquesEspecificos() {
       const po = (e.position||'').replace(/'/g,"\\'");
       const ti = (e.teamId||'').replace(/'/g,"\\'");
       return '<div style="flex-shrink:0;width:110px;border:1px solid rgba(255,255,255,.08);border-radius:12px;padding:10px 8px;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:6px;position:relative;background:transparent">'
-        + '<button onclick="event.stopPropagation();_destRemover(\''+e.playerId+'\')" style="position:absolute;top:5px;left:6px;background:none;border:none;cursor:pointer;font-size:13px;color:rgba(255,255,255,0.3);line-height:1;padding:0;z-index:2" title="Remover">✕</button>'
+        + '<button onclick="event.stopPropagation();_destRemover(\''+e.playerId+'\')" style="position:absolute;top:5px;left:6px;background:none;border:none;cursor:pointer;font-size:13px;color:rgba(255,255,255,0.3);line-height:1;padding:0;z-index:2" title="Remover">\u2715</button>'
         + '<button onclick="event.stopPropagation();favToggle(\''+e.playerId+'\',\''+pn+'\',\''+ph+'\',\''+po+'\',\''+ti+'\',\''+tn+'\');renderDestaquesEspecificos();" style="position:absolute;top:5px;right:6px;background:none;border:none;cursor:pointer;font-size:15px;color:'+starC+';line-height:1;padding:0;z-index:2" title="Favoritar">'+starCh+'</button>'
         + '<div onclick="verScoutDoDestaqueDir(\''+pn+'\',\''+tn+'\',\''+e.playerId+'\')" style="display:flex;flex-direction:column;align-items:center;gap:6px;width:100%">'
         + '<div style="width:60px;height:60px;border-radius:50%;overflow:hidden;border:2px solid '+cat.color+'55">'
@@ -2855,19 +2865,29 @@ function renderDestaquesEspecificos() {
         + '</div>'
         + '</div>';
     }).join('');
-    htmlTotal += `<div style="margin-bottom:16px">
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
-        <span style="font-size:16px">${cat.emoji}</span>
-        <div>
-          <div style="font-family:'Bebas Neue',sans-serif;font-size:14px;color:${cat.color};letter-spacing:.06em">DESTAQUES EM ${cat.lbl.toUpperCase()}</div>
-          <div style="font-size:10px;color:#555">Recém pesquisados · mín ${cat.min}/jogo</div>
-        </div>
-      </div>
-      <div style="display:flex;gap:8px;overflow-x:auto;padding-bottom:6px;-webkit-overflow-scrolling:touch;scrollbar-width:none">${cards}</div>
-    </div>`;
+    htmlTotal += '<div style="margin-bottom:16px">'
+      + '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">'
+      + '<span style="font-size:16px">'+cat.emoji+'</span>'
+      + '<div>'
+      + '<div style="font-family:\'Bebas Neue\',sans-serif;font-size:14px;color:'+cat.color+';letter-spacing:.06em">DESTAQUES EM '+cat.lbl.toUpperCase()+'</div>'
+      + '<div style="font-size:10px;color:#555">Recém pesquisados · mín '+cat.min+'/jogo</div>'
+      + '</div>'
+      + '</div>'
+      + '<div style="display:flex;gap:8px;overflow-x:auto;padding-bottom:6px;-webkit-overflow-scrolling:touch;scrollbar-width:none">'+cards+'</div>'
+      + '</div>';
   }
-  if (htmlTotal) { box.innerHTML=`<div class="card" style="padding:14px">${htmlTotal}</div>`; box.style.display='block'; }
-  else box.style.display='none';
+  if (htmlTotal) {
+    box.innerHTML='<div class="card" style="padding:14px">'
+      +'<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;cursor:pointer" onclick="toggleDest()">'
+      +'<span style="font-family:\'Bebas Neue\',sans-serif;font-size:15px;color:var(--green);letter-spacing:.06em">⚡ DESTAQUES ESPECÍFICOS</span>'
+      +'<span id="dest-esp-chevron" style="color:var(--green);font-size:18px;line-height:1">'+(_destExpanded?'▾':'▸')+'</span>'
+      +'</div>'
+      +'<div id="dest-esp-body" style="display:'+(_destExpanded?'block':'none')+'">'
+      +htmlTotal
+      +'</div>'
+      +'</div>';
+    box.style.display='block';
+  } else box.style.display='none';
 }
 
 function _destRemover(playerId) {
@@ -3968,4 +3988,4 @@ document.addEventListener('keydown',e=>{if(e.key==='Enter'&&document.activeEleme
 
 
 </body>
-</html>
+          </html>
