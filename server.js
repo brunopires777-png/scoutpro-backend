@@ -1492,9 +1492,17 @@ app.get('/api/times/:id/grafico', async (req, res) => {
           && base.home_score !== undefined && base.away_score !== undefined;
     });
 
-    // Ordena do mais recente para o mais antigo e pega os 10 primeiros
-    jogosValidos.sort((a, b) => new Date(b.event_date || b.date || 0) - new Date(a.event_date || a.date || 0));
-    const jogos = jogosValidos.slice(0, 10);
+    // Log para diagnóstico — mostra datas brutas e normalizadas
+    console.log('[grafico] rawJogos total:', rawJogos.length, '| válidos após filtro:', jogosValidos.length);
+    jogosValidos.slice(0, 15).forEach(ev => {
+      const base = normEvento(ev);
+      console.log('  id:', ev.id, '| ev.event_date:', ev.event_date, '| base.event_date:', base.event_date, '| score:', base.home_score, '-', base.away_score);
+    });
+
+    // Sort usando normEvento para garantir campo certo, depois pega 10 mais recentes
+    const jogosOrdenados = jogosValidos.map(ev => ({ ev, base: normEvento(ev) }));
+    jogosOrdenados.sort((a, b) => new Date(b.base.event_date || 0) - new Date(a.base.event_date || 0));
+    const jogos = jogosOrdenados.slice(0, 10).map(x => x.ev);
 
     // Para cada jogo, busca stats em paralelo
     const comStats = await Promise.allSettled(
