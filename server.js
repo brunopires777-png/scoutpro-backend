@@ -1473,22 +1473,25 @@ app.get('/api/times/:id/jogos', async (req, res) => {
 app.get('/api/times/:id/grafico', async (req, res) => {
   try {
     const teamId = req.params.id;
-    // Busca últimos jogos finalizados de QUALQUER liga/campeonato usando team_id
-    // team_id retorna jogos onde o time jogou em casa OU fora — sem duplicação
+    // Busca com limit alto para garantir 10 jogos válidos após filtrar nulos
     const fixtures = await bsd(`/teams/${teamId}/fixtures/`, {
       status: 'finished',
-      date_from: dayOffset(-180),
+      date_from: dayOffset(-365),
       date_to: dayOffset(0),
-      limit: 20,
+      limit: 40,
       ordering: '-event_date'
     });
     const rawJogos = fixtures.results || [];
-    // Deduplica por id (garante sem duplicatas independente do comportamento da BSD)
+
+    // Deduplica por id e filtra imediatamente jogos sem placar
     const seenIds = new Set();
     const jogos = rawJogos.filter(ev => {
       if (seenIds.has(ev.id)) return false;
       seenIds.add(ev.id);
-      return true;
+      const base = normEvento(ev);
+      // Só aceita jogos com placar real registrado
+      return base.home_score !== null && base.away_score !== null
+          && base.home_score !== undefined && base.away_score !== undefined;
     }).slice(0, 10);
 
     // Para cada jogo, busca stats em paralelo
