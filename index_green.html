@@ -887,20 +887,35 @@ function goPage(name,el){
 async function carregarLigas(){
   try{
     const data=await apiFetch('/api/leagues','ligas_all',3600000*6);
-    ligasCache=data.results||[];
+
+    // Ligas a excluir (nomes parciais, case-insensitive)
+    const EXCLUIR = [
+      'afc asian cup 2023','africa cup of nations 2023','allsvenskan',
+      'caf champions','concacaf gold cup','copa américa 2024','copa america 2024',
+      'mls','veikkausliiga'
+    ];
+    const ligasFiltradas = (data.results||[]).filter(l => {
+      const nm = (l.name||'').toLowerCase();
+      return !EXCLUIR.some(ex => nm.includes(ex));
+    });
+
+    ligasCache = ligasFiltradas;
+
+    // Ligas extras garantidas
+    const EXTRA_LEAGUES=[
+      {id:32,name:'Copa Libertadores (América do Sul)'},
+      {id:33,name:'Copa Sudamericana (América do Sul)'},
+      {id:9,name:'Brasileirão Série A'},
+      {id:34,name:'Brasileirão Série B'},
+      {id:35,name:'Copa do Brasil'},
+      {id:1,name:'🏆 Copa do Mundo 2026'},
+    ];
+    const jaTemIds=new Set(ligasCache.map(l=>l.id));
+    EXTRA_LEAGUES.forEach(l=>{if(!jaTemIds.has(l.id))ligasCache.push(l);});
+
     ['sel-liga-jogos','sel-liga-pred','sel-liga-class','sel-liga-arb'].forEach(id=>{
       const el=document.getElementById(id);if(!el)return;
-      // Garante ligas sul-americanas confirmadas na BSD
-  const EXTRA_LEAGUES=[
-    {id:32,name:'Copa Libertadores (América do Sul)'},
-    {id:33,name:'Copa Sudamericana (América do Sul)'},
-    {id:9,name:'Brasileirão Série A'},
-    {id:34,name:'Brasileirão Série B'},
-    {id:35,name:'Copa do Brasil'},
-  ];
-  const jaTemIds=new Set(ligasCache.map(l=>l.id));
-  EXTRA_LEAGUES.forEach(l=>{if(!jaTemIds.has(l.id))ligasCache.push(l);});
-  ligasCache.forEach(l=>{const o=document.createElement('option');o.value=l.id;o.textContent=l.name;el.appendChild(o);});
+      ligasCache.forEach(l=>{const o=document.createElement('option');o.value=l.id;o.textContent=l.name;el.appendChild(o);});
     });
   }catch(e){}
 }
@@ -1741,17 +1756,49 @@ function mtab(nome,btn){
   if(nome==='predicao')renderMtPredicao(jogoAtivo);
 }
 
+async function _traduzirAI(aiId, evId) {
+  const btn = document.getElementById('btn-traduzir-'+evId);
+  const textEl = document.getElementById('ai-text-'+evId);
+  if (!btn || !textEl) return;
+  const original = textEl.getAttribute('data-original') || textEl.textContent;
+  // Se já está em PT-BR, volta para o original
+  if (btn.textContent.includes('ORIGINAL')) {
+    textEl.innerHTML = original;
+    btn.innerHTML = '🌐 TRADUZIR';
+    return;
+  }
+  btn.innerHTML = '⏳ Traduzindo...';
+  btn.disabled = true;
+  try {
+    const resp = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-6',
+        max_tokens: 1000,
+        messages: [{ role: 'user', content: 'Traduza o texto abaixo para português do Brasil. Retorne APENAS a tradução, sem explicações, sem aspas, sem markdown:\n\n' + original }]
+      })
+    });
+    const data = await resp.json();
+    const translated = data.content?.[0]?.text || '';
+    if (translated) {
+      textEl.setAttribute('data-original', original);
+      textEl.innerHTML = translated;
+      btn.innerHTML = '🔄 ORIGINAL';
+      btn.disabled = false;
+    } else throw new Error('vazio');
+  } catch(e) {
+    btn.innerHTML = '🌐 TRADUZIR';
+    btn.disabled = false;
+    toast('Erro ao traduzir');
+  }
+}
+
 function renderMtResumo(d){
   const ev=d.evento;if(!ev)return;
   let html=``;
-  // AI Preview — texto gerado por IA sobre o jogo
+  // AI Preview — movido para o final do modal
   const aiText = d.ai_preview || d.metadata?.ai_preview || d.evento?.ai_preview || null;
-  if(aiText){
-    html+=`<div style="background:rgba(57,255,20,.05);border:1px solid rgba(57,255,20,.15);border-radius:12px;padding:12px 14px;margin-bottom:14px;position:relative">
-      <div style="font-size:10px;color:rgba(57,255,20,.6);font-weight:700;letter-spacing:.08em;margin-bottom:6px">🤖 ANÁLISE IA</div>
-      <div style="font-size:13px;color:#ccc;line-height:1.6">${aiText}</div>
-    </div>`;
-  }
   const goals=(d.incidents?.incidents||[]).filter(i=>i.type==='goal');
   if(goals.length){
     html+=`<div class="slabel" style="margin:12px 0 6px">⚽ GOLS</div><div class="inc-list">${goals.map(g=>`
@@ -1850,6 +1897,19 @@ function renderMtResumo(d){
     </div>`;
   }
   document.getElementById('mt-resumo').innerHTML=html;
+  // Adiciona Análise IA no final (após todo o conteúdo)
+  if(aiText){
+    const aiId='ai-block-'+( ev?.id||'');
+    const aiDiv=document.createElement('div');
+    aiDiv.id=aiId;
+    aiDiv.style.cssText='background:rgba(57,255,20,.05);border:1px solid rgba(57,255,20,.15);border-radius:12px;padding:12px 14px;margin-top:14px';
+    aiDiv.innerHTML='<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">'
+      +'<div style="font-size:10px;color:rgba(57,255,20,.6);font-weight:700;letter-spacing:.08em">🤖 ANÁLISE IA</div>'
+      +'<button id="btn-traduzir-'+( ev?.id||'')+'" onclick="_traduzirAI(\''+aiId+'\',\''+( ev?.id||'')+'\')" style="background:rgba(57,255,20,.1);border:1px solid rgba(57,255,20,.25);color:var(--green);border-radius:8px;padding:3px 10px;font-size:10px;font-weight:700;cursor:pointer;letter-spacing:.04em">🌐 TRADUZIR</button>'
+      +'</div>'
+      +'<div id="ai-text-'+( ev?.id||'')+'" style="font-size:13px;color:#ccc;line-height:1.6">'+aiText+'</div>';
+    document.getElementById('mt-resumo').appendChild(aiDiv);
+  }
   // Enriquece com mercados extras da predição em background
   if(ev?.id) enriquecerPredicao(ev.id, document.getElementById('mt-resumo'));
   const _resumoEl=document.getElementById('mt-resumo');
@@ -1941,17 +2001,17 @@ async function abrirMiniScout(playerId, playerName, playerPos, teamId, teamName)
     const isGk = isGoleiro(playerPos);
     const cols = isGk ? GK_COLS : LINE_COLS;
     const snap = data.snapshot || {};
-    statsArea.innerHTML = '<div style="overflow-x:auto;-webkit-overflow-scrolling:touch">'
-      + '<table style="width:100%;border-collapse:collapse;font-size:12px">'
+    statsArea.innerHTML = '<div style="width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:thin">'
+      + '<table style="min-width:420px;border-collapse:collapse;font-size:12px">'
       + '<thead><tr style="border-bottom:1px solid rgba(57,255,20,.2)">'
-      + '<th style="padding:7px 6px;text-align:left;color:#666;font-size:10px;font-weight:700">ADV</th>'
-      + '<th style="padding:7px 6px;text-align:center;color:#666;font-size:10px;font-weight:700">RES</th>'
-      + cols.map(function(c){ return '<th style="padding:7px 6px;text-align:center;color:#666;font-size:10px;font-weight:700">'+c.label+'</th>'; }).join('')
+      + '<th style="padding:7px 6px;text-align:left;color:#666;font-size:10px;font-weight:700;white-space:nowrap">ADV</th>'
+      + '<th style="padding:7px 6px;text-align:center;color:#666;font-size:10px;font-weight:700;white-space:nowrap">RES</th>'
+      + cols.map(function(c){ return '<th style="padding:7px 6px;text-align:center;color:#666;font-size:10px;font-weight:700;white-space:nowrap">'+c.label+'</th>'; }).join('')
       + '</tr></thead>'
       + '<tbody>'
       + _renderScoutRows(jogos.slice(0,7), cols, teamName)
       + '<tr style="background:rgba(30,30,30,.6)">'
-      + '<td colspan="2" style="padding:7px 6px;font-size:10px;font-weight:700;color:#888">MÉD</td>'
+      + '<td colspan="2" style="padding:7px 6px;font-size:10px;font-weight:700;color:#888;white-space:nowrap">MÉD</td>'
       + _renderAvgCells(cols, snap)
       + '</tr>'
       + '</tbody></table></div>';
@@ -3147,9 +3207,16 @@ function renderLPList(q){
   const sel = _lpSelected[_lpId];
   
   const todas = [{id:'', name:'Todas as ligas', country:'', _todas:true}];
-  const filtradas = ligasCache.filter(l => 
-    !q || l.name.toLowerCase().includes(q) || (l.country||'').toLowerCase().includes(q)
-  );
+  const EXCLUIR_LP = [
+    'afc asian cup 2023','africa cup of nations 2023','allsvenskan',
+    'caf champions','concacaf gold cup','copa américa 2024','copa america 2024',
+    'mls','veikkausliiga'
+  ];
+  const filtradas = ligasCache.filter(l => {
+    const nm = (l.name||'').toLowerCase();
+    if (EXCLUIR_LP.some(ex => nm.includes(ex))) return false;
+    return !q || nm.includes(q) || (l.country||'').toLowerCase().includes(q);
+  });
   const items = q ? filtradas : [...todas, ...filtradas];
 
   list.innerHTML = items.map(l => {
@@ -3966,6 +4033,8 @@ async function carregarGraficoTime(teamId, teamName) {
   }
 }
 
+// Invalida cache de ligas para aplicar filtros atualizados
+try{localStorage.removeItem('sp4_ligas_all');}catch(e){}
 checkStatus();
 carregarLigas();
 renderDestaques();
@@ -4071,4 +4140,4 @@ document.addEventListener('keydown',e=>{if(e.key==='Enter'&&document.activeEleme
   </div>
 </div>
 </body>
-</html>
+  </html>
