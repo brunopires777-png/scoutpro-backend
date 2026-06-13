@@ -1473,36 +1473,46 @@ app.get('/api/times/:id/jogos', async (req, res) => {
 app.get('/api/times/:id/grafico', async (req, res) => {
   try {
     const teamId = req.params.id;
-    const fixtures = await bsd(`/teams/${teamId}/fixtures/`, {
-      status: 'finished',
-      date_from: dayOffset(-365),
-      date_to: dayOffset(0),
-      limit: 40,
-      ordering: '-event_date'
-    });
-    const rawJogos = fixtures.results || [];
 
-    // Deduplica por id e filtra jogos sem placar
+    // A BSD ignora ordering e retorna mais antigos primeiro com limit alto.
+    // Solução: buscar em janelas curtas do mais recente ao mais antigo até ter 10 jogos válidos.
     const seenIds = new Set();
-    const jogosValidos = rawJogos.filter(ev => {
-      if (seenIds.has(ev.id)) return false;
-      seenIds.add(ev.id);
-      const base = normEvento(ev);
-      return base.home_score !== null && base.away_score !== null
-          && base.home_score !== undefined && base.away_score !== undefined;
-    });
+    const jogosValidos = [];
+    const janelas = [
+      { from: dayOffset(-30),  to: dayOffset(0)   },
+      { from: dayOffset(-60),  to: dayOffset(-30)  },
+      { from: dayOffset(-90),  to: dayOffset(-60)  },
+      { from: dayOffset(-150), to: dayOffset(-90)  },
+      { from: dayOffset(-270), to: dayOffset(-150) },
+      { from: dayOffset(-365), to: dayOffset(-270) },
+    ];
 
-    // Log para diagnóstico — mostra datas brutas e normalizadas
-    console.log('[grafico] rawJogos total:', rawJogos.length, '| válidos após filtro:', jogosValidos.length);
-    jogosValidos.slice(0, 15).forEach(ev => {
-      const base = normEvento(ev);
-      console.log('  id:', ev.id, '| ev.event_date:', ev.event_date, '| base.event_date:', base.event_date, '| score:', base.home_score, '-', base.away_score);
-    });
+    for (const janela of janelas) {
+      if (jogosValidos.length >= 10) break;
+      const fixtures = await bsd(`/teams/${teamId}/fixtures/`, {
+        status: 'finished',
+        date_from: janela.from,
+        date_to: janela.to,
+        limit: 20,
+        ordering: '-event_date'
+      });
+      const results = fixtures.results || [];
+      for (const ev of results) {
+        if (jogosValidos.length >= 10) break;
+        if (seenIds.has(ev.id)) continue;
+        seenIds.add(ev.id);
+        const base = normEvento(ev);
+        if (base.home_score !== null && base.away_score !== null
+         && base.home_score !== undefined && base.away_score !== undefined) {
+          jogosValidos.push(ev);
+        }
+      }
+    }
 
-    // Sort usando normEvento para garantir campo certo, depois pega 10 mais recentes
-    const jogosOrdenados = jogosValidos.map(ev => ({ ev, base: normEvento(ev) }));
-    jogosOrdenados.sort((a, b) => new Date(b.base.event_date || 0) - new Date(a.base.event_date || 0));
-    const jogos = jogosOrdenados.slice(0, 10).map(x => x.ev);
+    // Ordena do mais recente para o mais antigo (para o gráfico mostrar cronológico ao reverter)
+    jogosValidos.sort((a, b) => new Date(b.event_date || 0) - new Date(a.event_date || 0));
+    const jogos = jogosValidos.slice(0, 10);
+    console.log('[grafico] jogos selecionados:', jogos.map(ev => ev.event_date?.slice(0,10)).join(', '));
 
     // Para cada jogo, busca stats em paralelo
     const comStats = await Promise.allSettled(
