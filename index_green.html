@@ -2070,31 +2070,20 @@ function fecharMiniScout(ev) {
 }
 
 function abrirScoutEscalacao(playerName, teamName, playerId) {
-  // Usa exatamente o mesmo fluxo do scout normal (verStats via elenco)
-  // step3 fica visível dentro do painel inline abaixo do jogo
-  const step3 = document.getElementById('step3');
-  const inline = document.getElementById('mt-scout-inline');
-  if (!step3 || !inline) return;
-
-  // Toggle
-  if (inline.dataset.pid === String(playerId) && inline.style.display !== 'none') {
-    inline.style.display = 'none';
-    inline.dataset.pid = '';
-    return;
-  }
-
-  inline.dataset.pid = String(playerId);
-  inline.style.display = 'block';
-  inline.innerHTML = '';
-
-  // Move step3 para dentro do inline e chama verStats normalmente
-  inline.appendChild(step3);
-  step3.style.display = 'block';
-
-  // Chama verStats igual ao elenco — sem photo e sem teamIdOverride pois serão buscados
-  verStats(playerId, playerName, '', '', null, '', teamName);
-
-  inline.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  // Recolhe o painel sem fechar (preserva estado para outros jogos)
+  const overlay = document.getElementById('overlay');
+  overlay.classList.remove('open');
+  overlay.dataset.jogoId = '';
+  const si = document.getElementById('mt-scout-inline');
+  if (si) { si.style.display='none'; si.dataset.pid=''; si.innerHTML=''; }
+  // Vai para aba Scout
+  const btnScout = document.querySelector('button.tab[onclick*="scout"]');
+  goPage('scout', btnScout);
+  // Abre scout normal com foto
+  const photo = API + '/img/player/' + playerId;
+  setTimeout(function() {
+    verStats(playerId, playerName, photo, '', teamName, '', teamName);
+  }, 100);
 }
 
 function renderMtEscalacao(d){
@@ -3548,10 +3537,7 @@ async function verStatsJogadorDireto(playerId, playerName, teamName, playerPos){
           <div style="font-family:'Bebas Neue',sans-serif;font-size:20px;letter-spacing:.04em">${playerName}</div>
           <div style="font-size:12px;color:#999;margin-top:2px">${teamName} · ${playerPos}</div>
         </div>
-        <div style="text-align:center;background:${confColor}18;border:1px solid ${confColor}44;border-radius:12px;padding:8px 14px">
-          <div style="font-family:'Bebas Neue',sans-serif;font-size:32px;color:${confColor};line-height:1">${verdict}%</div>
-          <div style="font-size:9px;color:#666;font-weight:700;letter-spacing:.08em">VEREDITO</div>
-        </div>
+
       </div>
       <div class="slabel" style="margin-bottom:8px">ÚLTIMOS ${jogos.length} JOGOS</div>
       <div style="overflow-x:auto">
@@ -4220,4 +4206,4 @@ document.addEventListener('keydown',e=>{if(e.key==='Enter'&&document.activeEleme
   </div>
 </div>
 </body>
-</html>
+  </html>
