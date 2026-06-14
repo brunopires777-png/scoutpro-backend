@@ -4220,13 +4220,4 @@ document.addEventListener('keydown',e=>{if(e.key==='Enter'&&document.activeEleme
   </div>
 </div>
 </body>
-</html>function abrirScoutEscalacao(playerName, teamName, playerId) {
-  // Fecha o painel do jogo e vai para a aba Scout usando o scout normal
-  fecharModal();
-  const btnScout = document.querySelector('button.tab[onclick*="scout"]');
-  goPage('scout', btnScout);
-  // Chama verStats — o mesmo scout que já funciona perfeitamente no elenco
-  setTimeout(function() {
-    verStats(playerId, playerName, '', '', teamName, '', teamName);
-  }, 100);
-}
+</html>
