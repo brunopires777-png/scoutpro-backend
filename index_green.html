@@ -2016,18 +2016,24 @@ async function abrirMiniScout(playerId, playerName, playerPos, teamId, teamName)
     if (!jogos.length) { statsArea.innerHTML = '<div style="color:#666;text-align:center;padding:20px">Sem dados disponíveis</div>'; return; }
     const isGk = isGoleiro(playerPos);
     const cols = isGk ? GK_COLS : LINE_COLS;
-    const snap = data.snapshot || {};
-    statsArea.innerHTML = '<div style="width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:thin">'
-      + '<table style="min-width:420px;border-collapse:collapse;font-size:12px">'
+    // Calcula snap localmente
+    const snap = {};
+    cols.forEach(function(col) {
+      const vals = jogos.map(function(j){ return j[col.key]; }).filter(function(v){ return v!=null&&v!=='—'&&!isNaN(Number(v)); });
+      const media = vals.length ? +(vals.reduce(function(a,b){ return a+Number(b); },0)/vals.length).toFixed(1) : null;
+      snap[col.key] = media; snap[col.label] = media;
+    });
+    statsArea.innerHTML = '<div style="width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch">'
+      + '<table style="min-width:320px;border-collapse:collapse;font-size:11px">'
       + '<thead><tr style="border-bottom:1px solid rgba(57,255,20,.2)">'
-      + '<th style="padding:7px 6px;text-align:left;color:#666;font-size:10px;font-weight:700;white-space:nowrap">ADV</th>'
-      + '<th style="padding:7px 6px;text-align:center;color:#666;font-size:10px;font-weight:700;white-space:nowrap">RES</th>'
-      + cols.map(function(c){ return '<th style="padding:7px 6px;text-align:center;color:#666;font-size:10px;font-weight:700;white-space:nowrap">'+c.label+'</th>'; }).join('')
+      + '<th style="padding:5px 4px;text-align:left;color:#666;font-size:9px;white-space:nowrap">ADV</th>'
+      + '<th style="padding:5px 4px;text-align:center;color:#666;font-size:9px;white-space:nowrap">RES</th>'
+      + cols.map(function(c){ return '<th style="padding:5px 4px;text-align:center;color:#666;font-size:9px;white-space:nowrap">'+c.label+'</th>'; }).join('')
       + '</tr></thead>'
       + '<tbody>'
       + _renderScoutRows(jogos.slice(0,7), cols, teamName)
       + '<tr style="background:rgba(30,30,30,.6)">'
-      + '<td colspan="2" style="padding:7px 6px;font-size:10px;font-weight:700;color:#888;white-space:nowrap">MÉD</td>'
+      + '<td colspan="2" style="padding:5px 4px;font-size:9px;color:#888;white-space:nowrap">MÉD</td>'
       + _renderAvgCells(cols, snap)
       + '</tr>'
       + '</tbody></table></div>';
@@ -2089,16 +2095,27 @@ async function abrirScoutEscalacao(playerName, teamName, playerId) {
     }
     const isGk = isGoleiro(data.position || '');
     const cols = isGk ? GK_COLS : LINE_COLS;
-    const snap = data.snapshot || {};
+
+    // Calcula snap localmente (igual verStatsJogadorDireto)
+    const snap = {};
+    cols.forEach(function(col) {
+      const vals = jogos.map(function(j){ return j[col.key]; }).filter(function(v){ return v!=null&&v!=='—'&&!isNaN(Number(v)); });
+      const media = vals.length ? +(vals.reduce(function(a,b){ return a+Number(b); },0)/vals.length).toFixed(1) : null;
+      snap[col.key] = media;
+      snap[col.label] = media;
+    });
+
+    // Tabela compacta — funciona em portrait e landscape
     statsArea.innerHTML = '<div style="width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch">'
-      + '<table style="min-width:400px;border-collapse:collapse;font-size:12px">'
+      + '<table style="min-width:320px;border-collapse:collapse;font-size:11px">'
       + '<thead><tr style="border-bottom:1px solid rgba(57,255,20,.2)">'
-      + '<th style="padding:6px 5px;text-align:left;color:#666;font-size:10px;white-space:nowrap">ADV</th>'
-      + '<th style="padding:6px 5px;text-align:center;color:#666;font-size:10px;white-space:nowrap">RES</th>'
-      + cols.map(function(c){ return '<th style="padding:6px 5px;text-align:center;color:#666;font-size:10px;white-space:nowrap">'+c.label+'</th>'; }).join('')
+      + '<th style="padding:5px 4px;text-align:left;color:#666;font-size:9px;white-space:nowrap">ADV</th>'
+      + '<th style="padding:5px 4px;text-align:center;color:#666;font-size:9px;white-space:nowrap">RES</th>'
+      + cols.map(function(c){ return '<th style="padding:5px 4px;text-align:center;color:#666;font-size:9px;white-space:nowrap">'+c.label+'</th>'; }).join('')
       + '</tr></thead><tbody>'
       + _renderScoutRows(jogos.slice(0,7), cols, teamName)
-      + '<tr style="background:rgba(30,30,30,.6)"><td colspan="2" style="padding:6px 5px;font-size:10px;color:#888">MÉD</td>'
+      + '<tr style="background:rgba(30,30,30,.6)">'
+      + '<td colspan="2" style="padding:5px 4px;font-size:9px;color:#888;white-space:nowrap">MÉD</td>'
       + _renderAvgCells(cols, snap)
       + '</tr></tbody></table></div>';
   } catch(e) {
