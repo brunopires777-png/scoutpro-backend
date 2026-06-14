@@ -154,10 +154,9 @@ select.finput{cursor:pointer}
 .filter-row .finput{flex:0 0 auto;width:auto;font-size:13px;padding:8px 12px}
 
 /* ── MODAL ── */
-.overlay{position:fixed;inset:0;background:rgba(0,0,0,0.92);z-index:200;display:flex;align-items:flex-start;justify-content:center;padding:20px 14px;overflow-y:auto;opacity:0;pointer-events:none;transition:opacity .3s;backdrop-filter:blur(15px)}
-.overlay.open{opacity:1;pointer-events:all}
-.modal{background:linear-gradient(165deg,var(--bg),#000);border:1px solid var(--border-bright);border-radius:24px;width:100%;max-width:680px;overflow:hidden;transform:scale(0.93) translateY(18px);transition:all .35s cubic-bezier(0.34,1.56,0.64,1);box-shadow:0 30px 100px rgba(0,0,0,1)}
-.overlay.open .modal{transform:scale(1) translateY(0)}
+.overlay{display:none;width:100%;margin-top:6px;margin-bottom:6px}
+.overlay.open{display:block}
+.modal{background:var(--bg2);border:1px solid rgba(57,255,20,.2);border-radius:14px;width:100%;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.6)}
 .modal-hdr{background:rgba(0,0,0,0.4);padding:16px 20px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid rgba(255,255,255,0.06)}
 .modal-title{font-family:'Bebas Neue',sans-serif;font-size:20px;letter-spacing:0.04em;color:#fff}
 .modal-close{background:none;border:none;color:var(--text2);font-size:22px;cursor:pointer;line-height:1;padding:0}
@@ -782,6 +781,8 @@ td.nd{color:#555;font-size:13px}
       <div id="mt-h2h" style="display:none"></div>
       <div id="mt-odds" style="display:none"></div>
       <div id="mt-predicao" style="display:none"></div>
+      <!-- Scout inline — abre ao clicar no nome na escalação -->
+      <div id="mt-scout-inline" style="display:none;margin-top:14px;border-top:1px solid rgba(57,255,20,.2);padding-top:14px"></div>
     </div>
   </div>
 </div>
@@ -1505,7 +1506,7 @@ function renderMatchCard(j){
   const oa=Number(j.odds_away||j.away_win||0);
   if(oh>0) pills=`<div class="match-pills"><span class="pill c">H ${oh.toFixed(2)}</span><span class="pill">X ${ox.toFixed(2)}</span><span class="pill o">A ${oa.toFixed(2)}</span></div>`;
 
-  return `<div class="match-card${live?' live':''}" onclick="abrirJogo(${j.id})">
+  return `<div class="match-card${live?' live':''}" data-jogo-id="${j.id}" onclick="abrirJogo(${j.id})">
     <div class="match-top" style="margin-bottom:14px">
       <span class="match-liga">${liga}</span>
       ${live?`<span class="match-hora live">${j.current_minute?j.current_minute+"'":j.period||'LIVE'}</span>`:`<span class="match-hora">${fmtHora(j.event_date)}</span>`}
@@ -1663,36 +1664,56 @@ function filtroJogo(p,btn){
 
 /* ── MODAL ── */
 async function abrirJogo(id){
-  document.getElementById('overlay').classList.add('open');
+  const overlay = document.getElementById('overlay');
+  pararModalLive();
+  jogoAtivo = null;
+
+  // Toggle: se já está aberto para esse jogo, fecha
+  if(overlay.dataset.jogoId === String(id) && overlay.classList.contains('open')){
+    fecharModal();
+    return;
+  }
+
+  // Move o overlay para logo após o card clicado
+  const card = document.querySelector('.match-card[data-jogo-id="'+id+'"]');
+  if(card && card.parentNode){
+    card.parentNode.insertBefore(overlay, card.nextSibling);
+  }
+
+  overlay.dataset.jogoId = String(id);
+  overlay.classList.add('open');
   limparModalTabs();
-  // Limpa header
+
   document.getElementById('modal-liga').textContent='Carregando...';
   document.getElementById('modal-rodada').textContent='';
   document.getElementById('modal-score').textContent='–';
   document.getElementById('modal-home-name').textContent='—';
   document.getElementById('modal-away-name').textContent='—';
   document.getElementById('modal-status-badge').innerHTML='';
-  document.getElementById('mt-resumo').innerHTML=`<div class="loading"><div class="spinner-wrap"><div class="spinner"></div></div><p>Carregando jogo...</p></div>`;
+  document.getElementById('mt-resumo').innerHTML='<div class="loading"><div class="spinner-wrap"><div class="spinner"></div></div><p>Carregando jogo...</p></div>';
+
+  setTimeout(function(){ overlay.scrollIntoView({behavior:'smooth', block:'start'}); }, 100);
+
   try{
-    const data=await apiFetch(`/api/jogos/${id}`,null,0);
-    jogoAtivo=data;
+    const data = await apiFetch('/api/jogos/'+id, null, 0);
+    jogoAtivo = data;
     preencherModalHeader(data);
     renderMtResumo(data);
-    // Auto-refresh a cada 30s se jogo estiver ao vivo
     pararModalLive();
     if(data.evento && isLiveEv(data.evento)){
-      _modalLiveIv=setInterval(async()=>{
+      _modalLiveIv = setInterval(async function(){
         try{
-          const fresh=await apiFetch(`/api/jogos/${id}`,null,0);
-          jogoAtivo=fresh;
+          const fresh = await apiFetch('/api/jogos/'+id, null, 0);
+          jogoAtivo = fresh;
           preencherModalHeader(fresh);
-          // Atualiza apenas o conteúdo da aba ativa sem re-renderizar tudo
-          const activeTab=document.querySelector('.mtab.active');
+          const activeTab = document.querySelector('.mtab.active');
           if(activeTab) activeTab.click();
         }catch(_){}
-      },30000);
+      }, 30000);
     }
-  }catch(e){document.getElementById('mt-resumo').innerHTML=`<div class="err">❌ ${e.message}</div>`;}
+  }catch(e){
+    document.getElementById('mt-resumo').innerHTML='<div class="err">❌ '+e.message+'</div>';
+  }
 }
 
 function preencherModalHeader(d){
@@ -2048,13 +2069,72 @@ function fecharMiniScout(ev) {
   document.body.style.overflow = '';
 }
 
-function abrirScoutEscalacao(playerName, teamName, playerId) {
-  fecharModal();
-  const btnScout = document.querySelector('.tab[onclick*="scout"]');
-  goPage('scout', btnScout);
-  setTimeout(function() {
-    verScoutDoDestaqueDir(playerName, teamName, playerId);
-  }, 200);
+async function abrirScoutEscalacao(playerName, teamName, playerId) {
+  const box = document.getElementById('mt-scout-inline');
+  if (!box) return;
+  if (box.dataset.pid === String(playerId) && box.style.display !== 'none') {
+    box.style.display = 'none'; box.dataset.pid = ''; return;
+  }
+  box.dataset.pid = String(playerId);
+  box.style.display = 'block';
+  box.innerHTML = '<div class="spinner-wrap"><div class="spinner"></div></div>';
+  box.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  try {
+    const photo = API + '/img/player/' + playerId;
+    let clubTeamId = '';
+    try {
+      const detail = await apiFetch('/api/player/'+playerId+'/detail','detail_'+playerId,86400000*3);
+      clubTeamId = String(detail?.team_id || '');
+    } catch(_) {}
+    let data = null;
+    if (clubTeamId) {
+      try { data = await apiFetch('/api/player/'+playerId+'/stats?teamId='+clubTeamId,'stats_'+playerId+'_'+clubTeamId,43200000); } catch(_) {}
+    }
+    if (!data || !(data.jogos||[]).length) {
+      data = await apiFetch('/api/player/'+playerId+'/stats','stats_'+playerId+'_',43200000);
+    }
+    const jogos = data.jogos || [];
+    const isGk = isGoleiro(data.position || '');
+    const cols = isGk ? GK_COLS : LINE_COLS;
+    const snap = {};
+    cols.forEach(function(col) {
+      const vals = jogos.map(function(j){ return j[col.key]; }).filter(function(v){ return v!=null&&v!=='—'&&!isNaN(Number(v)); });
+      snap[col.key] = snap[col.label] = vals.length ? +(vals.reduce(function(a,b){ return a+Number(b); },0)/vals.length).toFixed(1) : null;
+    });
+    const isFavNow = favGet().find(function(f){ return String(f.id) === String(playerId); });
+    const starC = isFavNow ? '#ffd740' : 'rgba(255,255,255,0.35)';
+    const starCh = isFavNow ? '★' : '☆';
+    const pnEsc = playerName.replace(/'/g,"\\'");
+    const tnEsc = teamName.replace(/'/g,"\\'");
+    let tableHtml = '<div style="color:#666;text-align:center;padding:16px;font-size:13px">Sem dados disponíveis</div>';
+    if (jogos.length) {
+      tableHtml = '<div style="width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch">'
+        + '<table style="min-width:320px;border-collapse:collapse;font-size:11px">'
+        + '<thead><tr style="border-bottom:1px solid rgba(57,255,20,.2)">'
+        + '<th style="padding:5px 4px;text-align:left;color:#666;font-size:9px;white-space:nowrap">ADV</th>'
+        + '<th style="padding:5px 4px;text-align:center;color:#666;font-size:9px;white-space:nowrap">RES</th>'
+        + cols.map(function(c){ return '<th style="padding:5px 4px;text-align:center;color:#666;font-size:9px;white-space:nowrap">'+c.label+'</th>'; }).join('')
+        + '</tr></thead><tbody>'
+        + _renderScoutRows(jogos.slice(0,7), cols, teamName)
+        + '<tr style="background:rgba(30,30,30,.6)"><td colspan="2" style="padding:5px 4px;font-size:9px;color:#888">MÉD</td>'
+        + _renderAvgCells(cols, snap)
+        + '</tr></tbody></table></div>';
+    }
+    box.innerHTML = '<div style="background:rgba(57,255,20,.03);border-radius:10px;padding:12px">'
+      + '<div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;padding-bottom:10px;border-bottom:1px solid rgba(57,255,20,.12)">'
+      + '<div style="width:44px;height:44px;border-radius:50%;overflow:hidden;border:2px solid rgba(57,255,20,.3);flex-shrink:0">'
+      + '<img src="'+photo+'" style="width:100%;height:100%;object-fit:cover" onerror="this.parentElement.innerHTML=\'<span style=font-size:20px;line-height:40px;text-align:center;display:block>👤</span>\'">'
+      + '</div>'
+      + '<div style="flex:1"><div style="font-family:\'Bebas Neue\',sans-serif;font-size:16px;letter-spacing:.04em">'+playerName+'</div>'
+      + '<div style="font-size:11px;color:#888">'+teamName+'</div></div>'
+      + '<button onclick="(function(){favToggle(\'' + playerId + '\',\'' + pnEsc + '\',\'' + photo + '\',\'\',\'\',\'' + tnEsc + '\');var el=document.getElementById(\'ms-inline-fav-' + playerId + '\');var iF=favGet().find(function(f){return String(f.id)===\'' + playerId + '\';});el.textContent=iF?\'\u2605\':\'\u2606\';el.style.color=iF?\'#ffd740\':\'rgba(255,255,255,0.35)\';})()" id="ms-inline-fav-' + playerId + '" style="background:none;border:none;cursor:pointer;font-size:22px;color:' + starC + ';padding:4px;flex-shrink:0">' + starCh + '</button>'
+      + '<button onclick="document.getElementById(\'mt-scout-inline\').style.display=\'none\'" style="background:rgba(255,255,255,.08);border:none;color:#fff;border-radius:50%;width:26px;height:26px;font-size:14px;cursor:pointer;flex-shrink:0;display:flex;align-items:center;justify-content:center">×</button>'
+      + '</div>'
+      + tableHtml
+      + '</div>';
+  } catch(e) {
+    box.innerHTML = '<div style="color:#ff4444;text-align:center;padding:16px">Erro ao carregar dados</div>';
+  }
 }
 
 function renderMtEscalacao(d){
@@ -2258,8 +2338,16 @@ function renderMtPredicao(d){
   ${recs.length?`<div class="slabel" style="margin-bottom:6px">RECOMENDAÇÕES</div><div class="recs">${recs.map(r=>`<span class="rec">✓ ${r}</span>`).join('')}</div>`:''}`;
 }
 
-function fecharModal(){document.getElementById('overlay').classList.remove('open');pararModalLive();jogoAtivo=null;}
-function fecharOverlay(e){if(e.target===document.getElementById('overlay'))fecharModal();}
+function fecharModal(){
+  const overlay = document.getElementById('overlay');
+  overlay.classList.remove('open');
+  overlay.dataset.jogoId = '';
+  const si = document.getElementById('mt-scout-inline');
+  if (si) { si.style.display='none'; si.dataset.pid=''; si.innerHTML=''; }
+  pararModalLive();
+  jogoAtivo=null;
+}
+function fecharOverlay(e){ fecharModal(); }function fecharOverlay(e){if(e.target===document.getElementById('overlay'))fecharModal();}
 
 /* ── PREDIÇÕES ── */
 async function carregarPredicoes(){
