@@ -2122,7 +2122,7 @@ async function abrirScoutEscalacao(playerName, teamName, playerId) {
       tbl = '<div style="width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch;display:block">'
         +'<table style="min-width:360px;border-collapse:collapse;font-size:11px">'
         +'<thead><tr style="border-bottom:1px solid rgba(57,255,20,.15)">'
-        +'<th style="padding:5px 4px;text-align:left;color:#555;font-size:9px;white-space:nowrap">ADV</th>'
+        +'<th style="padding:5px 4px;text-align:left;color:#555;font-size:9px;min-width:60px;max-width:80px">ADV</th>'
         +'<th style="padding:5px 4px;text-align:center;color:#555;font-size:9px;white-space:nowrap">RES</th>'
         +cols.map(function(c){return '<th style="padding:5px 4px;text-align:center;color:#555;font-size:9px;white-space:nowrap">'+c.label+'</th>';}).join('')
         +'</tr></thead><tbody>'
@@ -3526,8 +3526,8 @@ function _renderScoutRows(jogos, cols, teamName) {
     var sc = jr === 'W' ? 'score-w' : jr === 'L' ? 'score-l' : 'score-d';
     var fw = (jr === 'W' || jr === 'L') ? '600' : '400';
     return '<tr style="border-bottom:1px solid rgba(30,30,30,.8)">'
-      + '<td style="padding:9px 8px;font-size:12px;color:' + oppColor + ';font-weight:' + fw + '">' + oppDisp + '</td>'
-      + '<td style="padding:9px 8px;text-align:center"><span class="' + sc + '">' + (j.score || '—') + '</span></td>'
+      + '<td style="padding:5px 4px;font-size:10px;color:' + oppColor + ';font-weight:' + fw + ';min-width:60px;max-width:80px;word-break:break-word;line-height:1.2">' + oppDisp + '</td>'
+      + '<td style="padding:5px 4px;text-align:center;white-space:nowrap"><span class="' + sc + '">' + (j.score || '—') + '</span></td>'
       + cols.map(function(col) { return _renderStatCell(col, j); }).join('')
       + '</tr>';
   }).join('');
@@ -4283,4 +4283,4 @@ document.addEventListener('keydown',e=>{if(e.key==='Enter'&&document.activeEleme
   </div>
 </div>
 </body>
-            </html>
+  </html>
