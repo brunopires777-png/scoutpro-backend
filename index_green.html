@@ -2050,10 +2050,11 @@ function fecharMiniScout(ev) {
 
 function abrirScoutEscalacao(playerName, teamName, playerId) {
   fecharModal();
-  switchTab('scout');
+  const btnScout = document.querySelector('.tab[onclick*="scout"]');
+  goPage('scout', btnScout);
   setTimeout(function() {
     verScoutDoDestaqueDir(playerName, teamName, playerId);
-  }, 150);
+  }, 200);
 }
 
 function renderMtEscalacao(d){
@@ -4171,4 +4172,4 @@ document.addEventListener('keydown',e=>{if(e.key==='Enter'&&document.activeEleme
   </div>
 </div>
 </body>
-  </html>
+          </html>
