@@ -782,7 +782,7 @@ td.nd{color:#555;font-size:13px}
       <div id="mt-odds" style="display:none"></div>
       <div id="mt-predicao" style="display:none"></div>
       <!-- Scout inline — abre ao clicar no nome na escalação -->
-      <div id="mt-scout-inline" style="display:none;margin-top:14px;border-top:1px solid rgba(57,255,20,.2);padding-top:14px"></div>
+      <div id="mt-scout-inline" style="display:none;margin-top:14px;border-top:1px solid rgba(57,255,20,.2);padding-top:14px;max-width:100%;overflow:hidden"></div>
     </div>
   </div>
 </div>
@@ -1422,23 +1422,25 @@ async function carregarJogos(periodo){
   jogosCarregados=true;
   const liga=document.getElementById('sel-liga-jogos')?.value||'';
   const el=document.getElementById('jogos-area');
-  el.innerHTML=`<div class="loading"><div class="spinner-wrap"><div class="spinner"></div><div class="spinner-pct">0%</div></div><p>Carregando...</p></div>`;
-  // Passa a data local do browser para evitar diferença de fuso
-  const localDate=new Date().toLocaleDateString('en-CA'); // YYYY-MM-DD local
-  const qsep=liga?'&':'?';
+  el.innerHTML='<div class="loading"><div class="spinner-wrap"><div class="spinner"></div></div><p>Carregando...</p></div>';
+  const localDate=new Date().toLocaleDateString('en-CA');
   try{
-    const url=jogoPeriodo==='hoje'
-      ?`/api/jogos/hoje?date=${localDate}${liga?'&league_id='+liga:''}`
-      :`/api/jogos/${jogoPeriodo}${liga?'?league_id='+liga:''}`;
+    let url;
+    if(liga==='wc2026'||String(liga).includes('wc')){
+      url='/api/worldcup/matches';
+    } else if(jogoPeriodo==='hoje'){
+      url='/api/jogos/hoje?date='+localDate+(liga?'&league_id='+liga:'');
+    } else {
+      url='/api/jogos/'+jogoPeriodo+(liga?'?league_id='+liga:'');
+    }
     const data=await apiFetch(url,null,0);
-    const jogos=data.results||data.events||[];
+    const jogos=data.results||data.events||data.jogos||[];
     const temLive=jogoPeriodo==='ao-vivo'&&jogos.length>0;
     document.getElementById('live-dot').style.display=temLive?'block':'none';
     document.getElementById('live-pill').style.display=temLive?'inline-block':'none';
-    if(!jogos.length){el.innerHTML=`<div class="empty"><div class="empty-icon">⚽</div><p>Nenhum jogo encontrado</p></div>`;return;}
-
-    el.innerHTML=`<div class="match-list">${jogos.map(j=>renderMatchCard(j)).join('')}</div>`;
-  }catch(e){el.innerHTML=`<div class="err">❌ ${e.message}</div>`;}
+    if(!jogos.length){el.innerHTML='<div class="empty"><div class="empty-icon">⚽</div><p>Nenhum jogo encontrado</p></div>';return;}
+    el.innerHTML='<div class="match-list">'+jogos.map(j=>renderMatchCard(j)).join('')+'</div>';
+  }catch(e){el.innerHTML='<div class="err">❌ '+e.message+'</div>';}
 }
 
 function _renderArbTag(j){
@@ -4281,4 +4283,4 @@ document.addEventListener('keydown',e=>{if(e.key==='Enter'&&document.activeEleme
   </div>
 </div>
 </body>
-</html>
+            </html>
