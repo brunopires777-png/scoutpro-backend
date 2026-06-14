@@ -2069,72 +2069,32 @@ function fecharMiniScout(ev) {
   document.body.style.overflow = '';
 }
 
-async function abrirScoutEscalacao(playerName, teamName, playerId) {
-  const box = document.getElementById('mt-scout-inline');
-  if (!box) return;
-  if (box.dataset.pid === String(playerId) && box.style.display !== 'none') {
-    box.style.display = 'none'; box.dataset.pid = ''; return;
+function abrirScoutEscalacao(playerName, teamName, playerId) {
+  // Usa exatamente o mesmo fluxo do scout normal (verStats via elenco)
+  // step3 fica visível dentro do painel inline abaixo do jogo
+  const step3 = document.getElementById('step3');
+  const inline = document.getElementById('mt-scout-inline');
+  if (!step3 || !inline) return;
+
+  // Toggle
+  if (inline.dataset.pid === String(playerId) && inline.style.display !== 'none') {
+    inline.style.display = 'none';
+    inline.dataset.pid = '';
+    return;
   }
-  box.dataset.pid = String(playerId);
-  box.style.display = 'block';
-  box.innerHTML = '<div class="spinner-wrap"><div class="spinner"></div></div>';
-  box.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-  try {
-    const photo = API + '/img/player/' + playerId;
-    let clubTeamId = '';
-    try {
-      const detail = await apiFetch('/api/player/'+playerId+'/detail','detail_'+playerId,86400000*3);
-      clubTeamId = String(detail?.team_id || '');
-    } catch(_) {}
-    let data = null;
-    if (clubTeamId) {
-      try { data = await apiFetch('/api/player/'+playerId+'/stats?teamId='+clubTeamId,'stats_'+playerId+'_'+clubTeamId,43200000); } catch(_) {}
-    }
-    if (!data || !(data.jogos||[]).length) {
-      data = await apiFetch('/api/player/'+playerId+'/stats','stats_'+playerId+'_',43200000);
-    }
-    const jogos = data.jogos || [];
-    const isGk = isGoleiro(data.position || '');
-    const cols = isGk ? GK_COLS : LINE_COLS;
-    const snap = {};
-    cols.forEach(function(col) {
-      const vals = jogos.map(function(j){ return j[col.key]; }).filter(function(v){ return v!=null&&v!=='—'&&!isNaN(Number(v)); });
-      snap[col.key] = snap[col.label] = vals.length ? +(vals.reduce(function(a,b){ return a+Number(b); },0)/vals.length).toFixed(1) : null;
-    });
-    const isFavNow = favGet().find(function(f){ return String(f.id) === String(playerId); });
-    const starC = isFavNow ? '#ffd740' : 'rgba(255,255,255,0.35)';
-    const starCh = isFavNow ? '★' : '☆';
-    const pnEsc = playerName.replace(/'/g,"\\'");
-    const tnEsc = teamName.replace(/'/g,"\\'");
-    let tableHtml = '<div style="color:#666;text-align:center;padding:16px;font-size:13px">Sem dados disponíveis</div>';
-    if (jogos.length) {
-      tableHtml = '<div style="width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch">'
-        + '<table style="min-width:320px;border-collapse:collapse;font-size:11px">'
-        + '<thead><tr style="border-bottom:1px solid rgba(57,255,20,.2)">'
-        + '<th style="padding:5px 4px;text-align:left;color:#666;font-size:9px;white-space:nowrap">ADV</th>'
-        + '<th style="padding:5px 4px;text-align:center;color:#666;font-size:9px;white-space:nowrap">RES</th>'
-        + cols.map(function(c){ return '<th style="padding:5px 4px;text-align:center;color:#666;font-size:9px;white-space:nowrap">'+c.label+'</th>'; }).join('')
-        + '</tr></thead><tbody>'
-        + _renderScoutRows(jogos.slice(0,7), cols, teamName)
-        + '<tr style="background:rgba(30,30,30,.6)"><td colspan="2" style="padding:5px 4px;font-size:9px;color:#888">MÉD</td>'
-        + _renderAvgCells(cols, snap)
-        + '</tr></tbody></table></div>';
-    }
-    box.innerHTML = '<div style="background:rgba(57,255,20,.03);border-radius:10px;padding:12px">'
-      + '<div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;padding-bottom:10px;border-bottom:1px solid rgba(57,255,20,.12)">'
-      + '<div style="width:44px;height:44px;border-radius:50%;overflow:hidden;border:2px solid rgba(57,255,20,.3);flex-shrink:0">'
-      + '<img src="'+photo+'" style="width:100%;height:100%;object-fit:cover" onerror="this.parentElement.innerHTML=\'<span style=font-size:20px;line-height:40px;text-align:center;display:block>👤</span>\'">'
-      + '</div>'
-      + '<div style="flex:1"><div style="font-family:\'Bebas Neue\',sans-serif;font-size:16px;letter-spacing:.04em">'+playerName+'</div>'
-      + '<div style="font-size:11px;color:#888">'+teamName+'</div></div>'
-      + '<button onclick="(function(){favToggle(\'' + playerId + '\',\'' + pnEsc + '\',\'' + photo + '\',\'\',\'\',\'' + tnEsc + '\');var el=document.getElementById(\'ms-inline-fav-' + playerId + '\');var iF=favGet().find(function(f){return String(f.id)===\'' + playerId + '\';});el.textContent=iF?\'\u2605\':\'\u2606\';el.style.color=iF?\'#ffd740\':\'rgba(255,255,255,0.35)\';})()" id="ms-inline-fav-' + playerId + '" style="background:none;border:none;cursor:pointer;font-size:22px;color:' + starC + ';padding:4px;flex-shrink:0">' + starCh + '</button>'
-      + '<button onclick="document.getElementById(\'mt-scout-inline\').style.display=\'none\'" style="background:rgba(255,255,255,.08);border:none;color:#fff;border-radius:50%;width:26px;height:26px;font-size:14px;cursor:pointer;flex-shrink:0;display:flex;align-items:center;justify-content:center">×</button>'
-      + '</div>'
-      + tableHtml
-      + '</div>';
-  } catch(e) {
-    box.innerHTML = '<div style="color:#ff4444;text-align:center;padding:16px">Erro ao carregar dados</div>';
-  }
+
+  inline.dataset.pid = String(playerId);
+  inline.style.display = 'block';
+  inline.innerHTML = '';
+
+  // Move step3 para dentro do inline e chama verStats normalmente
+  inline.appendChild(step3);
+  step3.style.display = 'block';
+
+  // Chama verStats igual ao elenco — sem photo e sem teamIdOverride pois serão buscados
+  verStats(playerId, playerName, '', '', null, '', teamName);
+
+  inline.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
 
 function renderMtEscalacao(d){
@@ -4260,4 +4220,13 @@ document.addEventListener('keydown',e=>{if(e.key==='Enter'&&document.activeEleme
   </div>
 </div>
 </body>
-          </html>
+</html>function abrirScoutEscalacao(playerName, teamName, playerId) {
+  // Fecha o painel do jogo e vai para a aba Scout usando o scout normal
+  fecharModal();
+  const btnScout = document.querySelector('button.tab[onclick*="scout"]');
+  goPage('scout', btnScout);
+  // Chama verStats — o mesmo scout que já funciona perfeitamente no elenco
+  setTimeout(function() {
+    verStats(playerId, playerName, '', '', teamName, '', teamName);
+  }, 100);
+}
