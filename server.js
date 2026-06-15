@@ -1778,22 +1778,19 @@ app.get('/api/player/:id/stats', async (req, res) => {
 
     raw.sort((a, b) => new Date(b.event?.event_date || 0) - new Date(a.event?.event_date || 0));
 
-    // Se teamId foi passado, filtra apenas jogos desse time — evita misturar jogos da seleção
+    // Se teamId foi passado, filtra jogos desse time
+    // Para seleções: o g.team_id pode ser o clube, mas o evento tem home/away_team_id da seleção
     if (teamId) {
       const tid = String(teamId);
-      raw = raw.filter(g => {
+      const filtered = raw.filter(g => {
         const gtid = String(g.team_id || '');
         const ev = g.event || {};
         const hid = String(ev.home_team_id || '');
         const aid = String(ev.away_team_id || '');
-        // Mantém se o team_id bate, ou se o time aparece no evento
         return gtid === tid || hid === tid || aid === tid;
       });
-      // Se filtrou demais, usa sem filtro (teamId pode estar errado)
-      if (!raw.length) {
-        raw = data.results || [];
-        raw.sort((a, b) => new Date(b.event?.event_date || 0) - new Date(a.event?.event_date || 0));
-      }
+      // Só aplica filtro se retornar resultados — senão mantém todos (seleção com IDs diferentes)
+      if (filtered.length) raw = filtered;
     }
 
     const jogos = raw.slice(0, 7).map(g => {
@@ -1849,7 +1846,20 @@ app.get('/api/player/:id/stats', async (req, res) => {
       };
     });
 
-    res.json({ jogos, fromCache: false });
+    // Calcular snapshot (médias) para o frontend
+    const keys = ['chutes','chutes_gol','desarmes','ftc','fts','amarelos','vermelhos','defesas','gols','assistencias'];
+    const labels = ['CHU','CHG','DES','FTC','FTS','🟨','🟥','DEF','⚽','ASS'];
+    const snapshot = {};
+    keys.forEach((k, i) => {
+      const vals = jogos.map(j => j[k]).filter(v => v !== null && v !== undefined);
+      if (vals.length) {
+        const avg = vals.reduce((a, b) => a + b, 0) / vals.length;
+        snapshot[labels[i]] = Math.round(avg * 10) / 10;
+        snapshot[k] = Math.round(avg * 10) / 10;
+      }
+    });
+
+    res.json({ jogos, snapshot, fromCache: false });
   } catch(e) {
     console.error('[player-stats] erro:', e.message);
     res.status(500).json({ error: e.message });
