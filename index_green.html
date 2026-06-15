@@ -2011,11 +2011,42 @@ async function abrirMiniScout(playerId, playerName, playerPos, teamId, teamName)
       + '<div id="ms-stats-area"><div class="spinner-wrap"><div class="spinner"></div></div></div>'
       + '</div>';
 
-    const ckey = 'stats_'+playerId+'_'+(teamId||'');
-    let data = await apiFetch('/api/player/'+playerId+'/stats'+(teamId?'?teamId='+teamId:''), ckey, 43200000);
-    if ((!data.jogos || !data.jogos.length) && teamId) {
-      const ckeyFallback = 'stats_'+playerId+'_';
-      data = await apiFetch('/api/player/'+playerId+'/stats', ckeyFallback, 43200000);
+    // Sempre busca sem cache para garantir dados frescos no mini-scout
+    let data = { jogos: [] };
+    try {
+      const r1 = await fetch('/api/player/'+playerId+'/stats'+(teamId?'?teamId='+teamId:''));
+      data = await r1.json();
+    } catch(_) {}
+    // Fallback 1: sem teamId
+    if (!data.jogos || !data.jogos.length) {
+      try {
+        const r2 = await fetch('/api/player/'+playerId+'/stats');
+        data = await r2.json();
+      } catch(_) {}
+    }
+    // Fallback 2: rota alternativa com carreira
+    if (!data.jogos || !data.jogos.length) {
+      try {
+        const r3 = await fetch('/api/jogadores/'+playerId+'/stats');
+        const d3 = await r3.json();
+        if (d3.results && d3.results.length) {
+          // Converte formato alternativo para o mesmo formato
+          data = { jogos: d3.results.slice(0,7).map(function(g){
+            const ev = g.event||{};
+            const n = function(v){ return (v!=null&&!isNaN(Number(v)))?Number(v):null; };
+            return {
+              opponent: ev.away_team||ev.home_team||'—',
+              score: (ev.home_score!=null&&ev.away_score!=null)?(ev.home_score+'-'+ev.away_score):'—',
+              result: '—', data: '—',
+              chutes: n(g.total_shots), chutes_gol: n(g.shots_on_target),
+              desarmes: n(g.tackle_won||g.tackles_won), ftc: n(g.fouls_committed),
+              fts: n(g.fouls_drawn), amarelos: n(g.yellow_card), vermelhos: n(g.red_card),
+              defesas: n(g.saves), gols: n(g.goals), assistencias: n(g.goal_assist),
+              minutos: n(g.minutes_played), passes: n(g.accurate_pass||g.total_pass), rating: n(g.rating)
+            };
+          })};
+        }
+      } catch(_) {}
     }
     const statsArea = document.getElementById('ms-stats-area');
     if (!statsArea) return;
@@ -4178,4 +4209,4 @@ document.addEventListener('keydown',e=>{if(e.key==='Enter'&&document.activeEleme
   </div>
 </div>
 </body>
-    </html>
+  </html>
