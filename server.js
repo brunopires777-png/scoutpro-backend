@@ -1778,20 +1778,10 @@ app.get('/api/player/:id/stats', async (req, res) => {
 
     raw.sort((a, b) => new Date(b.event?.event_date || 0) - new Date(a.event?.event_date || 0));
 
-    // Se teamId foi passado, filtra jogos desse time
-    // Para seleções: o g.team_id pode ser o clube, mas o evento tem home/away_team_id da seleção
-    if (teamId) {
-      const tid = String(teamId);
-      const filtered = raw.filter(g => {
-        const gtid = String(g.team_id || '');
-        const ev = g.event || {};
-        const hid = String(ev.home_team_id || '');
-        const aid = String(ev.away_team_id || '');
-        return gtid === tid || hid === tid || aid === tid;
-      });
-      // Só aplica filtro se retornar resultados — senão mantém todos (seleção com IDs diferentes)
-      if (filtered.length) raw = filtered;
-    }
+    // Se teamId foi passado, tenta filtrar por esse time
+    // g.team_id pode não bater com teamId (BSD usa IDs internos diferentes)
+    // Por isso ignoramos teamId no filtro e deixamos o mapeamento de opponent cuidar disso
+    // O teamId ainda é usado abaixo para identificar qual lado do placar é do jogador
 
     const jogos = raw.slice(0, 7).map(g => {
       const ev = g.event || {};
