@@ -2011,10 +2011,11 @@ async function abrirMiniScout(playerId, playerName, playerPos, teamId, teamName)
       + '<div id="ms-stats-area"><div class="spinner-wrap"><div class="spinner"></div></div></div>'
       + '</div>';
 
-    // ttl=0 = sem cache, sempre busca fresco
-    let data = await apiFetch('/api/player/'+playerId+'/stats'+(teamId?'?teamId='+teamId:''), null, 0);
-    if (!data.jogos || !data.jogos.length) {
-      data = await apiFetch('/api/player/'+playerId+'/stats', null, 0);
+    const ckey = 'stats_'+playerId+'_'+(teamId||'');
+    let data = await apiFetch('/api/player/'+playerId+'/stats'+(teamId?'?teamId='+teamId:''), ckey, 43200000);
+    if ((!data.jogos || !data.jogos.length) && teamId) {
+      const ckeyFallback = 'stats_'+playerId+'_';
+      data = await apiFetch('/api/player/'+playerId+'/stats', ckeyFallback, 43200000);
     }
     const statsArea = document.getElementById('ms-stats-area');
     if (!statsArea) return;
@@ -4177,4 +4178,4 @@ document.addEventListener('keydown',e=>{if(e.key==='Enter'&&document.activeEleme
   </div>
 </div>
 </body>
-</html>
+          </html>
