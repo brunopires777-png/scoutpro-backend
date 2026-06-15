@@ -2058,7 +2058,7 @@ function renderMtEscalacao(d){
       const tid=teamId||'';
       const tn=(teamName||'').replace(/'/g,"\\'");
       const pn=pname.replace(/'/g,"\\'");
-      const clickAttr=pid?'style="cursor:pointer;color:var(--green);text-decoration:underline dotted rgba(57,255,20,.4)" onclick="verScoutDoDestaqueDir(\''+pn+'\',\''+tn+'\',\''+pid+'\')"':'';
+      const clickAttr=pid?'style="cursor:pointer;color:var(--green);text-decoration:underline dotted rgba(57,255,20,.4)" onclick="abrirMiniScout(\''+pid+'\',\''+pn+'\',\''+ppos+'\',\''+tid+'\',\''+tn+'\')"':'';
       return '<div class="lu-player"'+(opacity?' style="opacity:'+opacity+'"':'')+'>'
         +'<span class="lu-num">'+(p.jersey_number||'')+'</span>'
         +'<span class="lu-pos pos-'+ppos+'">'+ppos+'</span>'
@@ -4165,4 +4165,4 @@ document.addEventListener('keydown',e=>{if(e.key==='Enter'&&document.activeEleme
   </div>
 </div>
 </body>
-</html>
+  </html>
