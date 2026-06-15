@@ -3415,8 +3415,8 @@ function _renderScoutRows(jogos, cols, teamName) {
     var sc = jr === 'W' ? 'score-w' : jr === 'L' ? 'score-l' : 'score-d';
     var fw = (jr === 'W' || jr === 'L') ? '600' : '400';
     return '<tr style="border-bottom:1px solid rgba(30,30,30,.8)">'
-      + '<td style="padding:9px 8px;font-size:12px;color:' + oppColor + ';font-weight:' + fw + '">' + oppDisp + '</td>'
-      + '<td style="padding:9px 8px;text-align:center"><span class="' + sc + '">' + (j.score || '—') + '</span></td>'
+      + '<td style="padding:5px 3px;font-size:10px;color:' + oppColor + ';font-weight:' + fw + ';white-space:normal;max-width:75px;line-height:1.2">' + oppDisp + '</td>'
+      + '<td style="padding:5px 3px;text-align:center"><span class="' + sc + '" style="font-size:12px">' + (j.score || '—') + '</span></td>'
       + cols.map(function(col) { return _renderStatCell(col, j); }).join('')
       + '</tr>';
   }).join('');
@@ -3424,7 +3424,7 @@ function _renderScoutRows(jogos, cols, teamName) {
 function _renderAvgCells(cols, snap) {
   return cols.map(function(col) {
     var v = snap[col.label];
-    return '<td style="padding:9px 8px;text-align:center;font-family:\'Bebas Neue\',sans-serif;font-size:16px;color:var(--cyan)">' + (v != null ? v : '—') + '</td>';
+    return '<td style="padding:5px 3px;text-align:center;font-family:\'Bebas Neue\',sans-serif;font-size:11px;color:var(--cyan)">' + (v != null ? v : '—') + '</td>';
   }).join('');
 }
 function _renderStatCell(col, j) {
@@ -4178,4 +4178,4 @@ document.addEventListener('keydown',e=>{if(e.key==='Enter'&&document.activeEleme
   </div>
 </div>
 </body>
-      </html>
+    </html>
