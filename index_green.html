@@ -1416,7 +1416,19 @@ async function carregarJogos(periodo){
       ?`/api/jogos/hoje?date=${localDate}${liga?'&league_id='+liga:''}`
       :`/api/jogos/${jogoPeriodo}${liga?'?league_id='+liga:''}`;
     const data=await apiFetch(url,null,0);
-    const jogos=data.results||data.events||[];
+    const jogos_raw=data.results||data.events||[];
+    // Filtro "Hoje": remove futuros que ja passaram sem placar/status
+    let jogos=jogos_raw;
+    if(jogoPeriodo==='hoje'){
+      const agora=new Date();
+      jogos=jogos_raw.filter(j=>{
+        const s=(j.status||'').toLowerCase();
+        const isFin=s==='finished'||s==='ft'||s==='complete'||j.period==='FT';
+        if(isFin||isLiveEv(j)) return true;
+        const dt=new Date(j.event_date);
+        return isNaN(dt.getTime())||dt>=agora;
+      });
+    }
     const temLive=jogoPeriodo==='ao-vivo'&&jogos.length>0;
     document.getElementById('live-dot').style.display=temLive?'block':'none';
     document.getElementById('live-pill').style.display=temLive?'inline-block':'none';
@@ -2887,7 +2899,7 @@ function favToggle(pid,name,photo,position,teamId,teamName){
     el.title=isFav?'Remover dos favoritos':'Adicionar aos favoritos';
   });
 }
-var _favsExpanded = true;
+var _favsExpanded = false;
 function toggleFavs(){
   _favsExpanded=!_favsExpanded;
   var body=document.getElementById('favs-body');
@@ -2952,7 +2964,7 @@ function renderFavoritos(){
   box.style.display='block';
 }
 
-var _destExpanded = true;
+var _destExpanded = false;
 function toggleDest(){
   _destExpanded=!_destExpanded;
   var body=document.getElementById('dest-esp-body');
