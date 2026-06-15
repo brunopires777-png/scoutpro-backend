@@ -1420,13 +1420,14 @@ async function carregarJogos(periodo){
     // Filtro "Hoje": remove futuros que ja passaram sem placar/status
     let jogos=jogos_raw;
     if(jogoPeriodo==='hoje'){
-      const agora=new Date();
+      // Data local do usuário no formato YYYY-MM-DD (ex: "2026-06-14")
+      const hojeStr=new Date().toLocaleDateString('en-CA');
       jogos=jogos_raw.filter(j=>{
-        const s=(j.status||'').toLowerCase();
-        const isFin=s==='finished'||s==='ft'||s==='complete'||j.period==='FT';
-        if(isFin||isLiveEv(j)) return true;
-        const dt=new Date(j.event_date);
-        return isNaN(dt.getTime())||dt>=agora;
+        if(!j.event_date) return true;
+        // Pega só a parte da data do event_date (ignora fuso — a BSD já filtra por date_from/date_to)
+        const jdStr=j.event_date.slice(0,10);
+        // Só mantém se for do dia de hoje
+        return jdStr===hojeStr;
       });
     }
     const temLive=jogoPeriodo==='ao-vivo'&&jogos.length>0;
@@ -3221,6 +3222,9 @@ function renderLPList(q){
   const sel = _lpSelected[_lpId];
   
   const todas = [{id:'', name:'Todas as ligas', country:'', _todas:true}];
+  // Garante Copa do Mundo no topo da lista
+  const COPA_ITEM = {id:1, name:'🏆 Copa do Mundo 2026', country:'Mundial'};
+  if(!ligasCache.find(l=>String(l.id)==='1')) ligasCache.unshift(COPA_ITEM);
   const EXCLUIR_LP = [
     'afc asian cup 2023','africa cup of nations 2023',
     'allsvenskan','caf champions','concacaf gold cup',
@@ -3229,10 +3233,15 @@ function renderLPList(q){
   ];
   const filtradas = ligasCache.filter(l => {
     const nm = (l.name||'').toLowerCase();
+    if (String(l.id)==='1') return !q || nm.includes(q) || 'mundial'.includes(q) || 'copa'.includes(q) || 'world'.includes(q);
     if (EXCLUIR_LP.some(ex => nm.includes(ex))) return false;
     return !q || nm.includes(q) || (l.country||'').toLowerCase().includes(q);
   });
-  const items = q ? filtradas : [...todas, ...filtradas];
+  // Copa sempre no topo
+  const copaItem = filtradas.find(l=>String(l.id)==='1');
+  const semCopa = filtradas.filter(l=>String(l.id)!=='1');
+  const ordenadas = copaItem ? [copaItem, ...semCopa] : semCopa;
+  const items = q ? ordenadas : [...todas, ...ordenadas];
 
   list.innerHTML = items.map(l => {
     const isSel = sel ? sel.id === l.id : l._todas;
@@ -4155,4 +4164,4 @@ document.addEventListener('keydown',e=>{if(e.key==='Enter'&&document.activeEleme
   </div>
 </div>
 </body>
-</html>
+        </html>
