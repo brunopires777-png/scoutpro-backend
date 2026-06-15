@@ -70,6 +70,22 @@ function dayOffset(n) {
   return toBrasiliaDateStr(d);
 }
 
+// Helper: resolve league_id real da Copa do Mundo (id=1 é nosso alias interno)
+let _wcLeagueIdCache = null;
+async function resolveLeagueId(id) {
+  if (String(id) !== '1') return id; // só Copa tem alias
+  if (_wcLeagueIdCache) return _wcLeagueIdCache;
+  try {
+    const lgs = await bsd('/leagues/', { search: 'World Cup', limit: 10 });
+    const wc = (lgs.results||[]).find(l =>
+      l.name?.toLowerCase().includes('world cup') || l.name?.toLowerCase().includes('mundial')
+    );
+    if (wc?.id) { _wcLeagueIdCache = wc.id; return wc.id; }
+  } catch(_) {}
+  return id; // fallback: usa o 1 mesmo
+}
+
+
 
 // Debug: ver estrutura raw do endpoint v2 de value bets
 app.get('/api/debug/value-bets', async (req, res) => {
@@ -667,7 +683,8 @@ app.get('/api/jogos/hoje', async (req, res) => {
     const { league_id, date } = req.query;
     // Usa a data passada pelo frontend (horário local do usuário) ou today() como fallback
     const t = date || today();
-    const url = `https://sports.bzzoiro.com/api/events/?date_from=${t}&date_to=${t}&tz=America/Sao_Paulo&limit=200${league_id ? `&league=${league_id}` : ''}`;
+    const lgId = league_id ? await resolveLeagueId(league_id) : '';
+    const url = `https://sports.bzzoiro.com/api/events/?date_from=${t}&date_to=${t}&tz=America/Sao_Paulo&limit=200${lgId ? `&league=${lgId}` : ''}`;
     const data = await fetch(url, { headers: { Authorization: `Token ${BSD_TOKEN}` } }).then(r => r.json());
     data.results = await enriquecerArbitros((data.results || []).map(normEvento));
     res.json(data);
@@ -678,7 +695,8 @@ app.get('/api/jogos/amanha', async (req, res) => {
   try {
     const { league_id } = req.query;
     const t = dayOffset(1);
-    const url = `https://sports.bzzoiro.com/api/events/?date_from=${t}&date_to=${t}&tz=America/Sao_Paulo&limit=200${league_id ? `&league=${league_id}` : ''}`;
+    const lgId = league_id ? await resolveLeagueId(league_id) : '';
+    const url = `https://sports.bzzoiro.com/api/events/?date_from=${t}&date_to=${t}&tz=America/Sao_Paulo&limit=200${lgId ? `&league=${lgId}` : ''}`;
     const data = await fetch(url, { headers: { Authorization: `Token ${BSD_TOKEN}` } }).then(r => r.json());
     data.results = await enriquecerArbitros((data.results || []).map(normEvento));
     res.json(data);
@@ -688,7 +706,8 @@ app.get('/api/jogos/amanha', async (req, res) => {
 app.get('/api/jogos/semana', async (req, res) => {
   try {
     const { league_id } = req.query;
-    const url = `https://sports.bzzoiro.com/api/events/?date_from=${today()}&date_to=${dayOffset(7)}&tz=America/Sao_Paulo&limit=200${league_id ? `&league=${league_id}` : ''}`;
+    const lgId = league_id ? await resolveLeagueId(league_id) : '';
+    const url = `https://sports.bzzoiro.com/api/events/?date_from=${today()}&date_to=${dayOffset(7)}&tz=America/Sao_Paulo&limit=200${lgId ? `&league=${lgId}` : ''}`;
     const data = await fetch(url, { headers: { Authorization: `Token ${BSD_TOKEN}` } }).then(r => r.json());
     data.results = await enriquecerArbitros((data.results || []).map(normEvento));
     res.json(data);
