@@ -1808,7 +1808,8 @@ function renderMtResumo(d){
   const ev=d.evento;if(!ev)return;
   let html=``;
   // AI Preview — movido para o final do modal
-  const aiText = d.ai_preview || d.metadata?.ai_preview || d.evento?.ai_preview || null;
+  const _aiRaw = d.ai_preview || d.metadata?.ai_preview || d.evento?.ai_preview || null;
+  const aiText = (_aiRaw && _aiRaw !== 'null' && _aiRaw !== 'undefined' && String(_aiRaw).trim().length > 5) ? _aiRaw : null;
   const goals=(d.incidents?.incidents||[]).filter(i=>i.type==='goal');
   if(goals.length){
     html+=`<div class="slabel" style="margin:12px 0 6px">⚽ GOLS</div><div class="inc-list">${goals.map(g=>`
@@ -4164,4 +4165,4 @@ document.addEventListener('keydown',e=>{if(e.key==='Enter'&&document.activeEleme
   </div>
 </div>
 </body>
-        </html>
+</html>
