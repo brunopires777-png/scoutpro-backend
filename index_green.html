@@ -2082,8 +2082,8 @@ function renderMtEscalacao(d){
         +subs.slice(0,5).map(function(p){return renderPl(p,0.6);}).join('')+'</div>':'')
       +'</div>';
   }
-  const hid=d.evento?.home_team_id||'';
-  const aid=d.evento?.away_team_id||'';
+  const hid=d.evento?.home_team_id||d.evento?.home_id||'';
+  const aid=d.evento?.away_team_id||d.evento?.away_id||'';
   const hn=d.evento?.home_team||'Casa';
   const an=d.evento?.away_team||'Fora';
   el.innerHTML=(badge?'<div style="text-align:center;margin-bottom:10px"><span class="pill g">'+badge+'</span></div>':'')
@@ -3424,7 +3424,7 @@ function _renderScoutRows(jogos, cols, teamName) {
 function _renderAvgCells(cols, snap) {
   return cols.map(function(col) {
     var v = snap[col.label];
-    return '<td style="padding:9px 8px;text-align:center;font-family:\'Bebas Neue\',sans-serif;font-size:16px;color:var(--cyan)">' + (v != null ? v : '—') + '</td>';
+    return '<td style="padding:5px 3px;text-align:center;font-family:\'Bebas Neue\',sans-serif;font-size:12px;color:var(--cyan)">' + (v != null ? v : '—') + '</td>';
   }).join('');
 }
 function _renderStatCell(col, j) {
@@ -4178,4 +4178,4 @@ document.addEventListener('keydown',e=>{if(e.key==='Enter'&&document.activeEleme
   </div>
 </div>
 </body>
-</html>
+  </html>
