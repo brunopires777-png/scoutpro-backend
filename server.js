@@ -737,7 +737,7 @@ app.get('/api/jogos/:id', async (req, res) => {
       bsd(`/events/${id}/lineups/`),
       bsd(`/events/${id}/player-stats/`),
       bsd(`/events/${id}/prediction/`),
-      bsd(`/events/${id}/metadata/`),
+      bsd(`/api/v2/events/${id}/metadata/`).catch(() => bsd(`/events/${id}/metadata/`)),
       bsd(`/events/${id}/`) // base sem full=true, tem odds_home/draw/away
     ]);
 
@@ -755,18 +755,22 @@ app.get('/api/jogos/:id', async (req, res) => {
     const statsData = stats.status === 'fulfilled' ? stats.value : null;
     const predData = predicao.status === 'fulfilled' ? predicao.value : null;
 
-    // Extrai xG — v2 stats retorna home_xg/away_xg na raiz do objeto
+    // Extrai xG — tenta todos os campos possíveis do v2 e v1
     if (evData) {
       const sh = statsData?.stats?.home || statsData?.home || {};
       const sa = statsData?.stats?.away || statsData?.away || {};
-      const xgH = statsData?.home_xg ?? statsData?.xg?.home
-        ?? sh?.xg?.actual ?? sh?.xg?.value ?? sh?.xg ?? sh?.expected_goals
-        ?? evData.home_xg ?? predData?.markets?.expected_goals?.home ?? null;
-      const xgA = statsData?.away_xg ?? statsData?.xg?.away
-        ?? sa?.xg?.actual ?? sa?.xg?.value ?? sa?.xg ?? sa?.expected_goals
-        ?? evData.away_xg ?? predData?.markets?.expected_goals?.away ?? null;
-      evData.home_xg = xgH;
-      evData.away_xg = xgA;
+      // v2: xg pode estar em sh.xg (number), sh.expected_goals, statsData.home_xg
+      // v1: evData.home_xg, evData.actual_home_xg, evData.home_xg_live
+      const xgH = sh?.xg ?? sh?.expected_goals ?? sh?.xg_total
+        ?? statsData?.home_xg ?? statsData?.xg?.home
+        ?? evData.home_xg_live ?? evData.actual_home_xg ?? evData.home_xg
+        ?? predData?.markets?.expected_goals?.home ?? null;
+      const xgA = sa?.xg ?? sa?.expected_goals ?? sa?.xg_total
+        ?? statsData?.away_xg ?? statsData?.xg?.away
+        ?? evData.away_xg_live ?? evData.actual_away_xg ?? evData.away_xg
+        ?? predData?.markets?.expected_goals?.away ?? null;
+      evData.home_xg = xgH != null ? parseFloat(xgH).toFixed(2) : null;
+      evData.away_xg = xgA != null ? parseFloat(xgA).toFixed(2) : null;
     }
 
     const metaData = metadata?.status === 'fulfilled' ? metadata.value : null;
@@ -780,46 +784,58 @@ app.get('/api/jogos/:id', async (req, res) => {
       stats: statsData,
       incidents: incidents.status === 'fulfilled' ? incidents.value : null,
       odds: (function() {
-        if (odds.status !== 'fulfilled') return null;
-        const od = odds.value;
-        // BSD retorna {results:[...]} ou array direto ou {bookmakers:[...]}
-        const arr = Array.isArray(od) ? od
-          : Array.isArray(od?.results) ? od.results
-          : Array.isArray(od?.bookmakers) ? od.bookmakers
-          : Array.isArray(od?.odds_comparison) ? od.odds_comparison : null;
-        if (arr && arr.length) {
-          // Normaliza cada casa — v2 usa HOME/DRAW/AWAY como outcome keys
-          const bookmakers = arr.map(b => ({
-            bookmaker: b.bookmaker_name || b.bookmaker || b.name || b.slug || '—',
-            home_win: parseFloat(b.HOME || b.home_win || b.home || b['1'] || 0) || null,
-            draw:     parseFloat(b.DRAW || b.draw || b.x || b['X'] || 0) || null,
-            away_win: parseFloat(b.AWAY || b.away_win || b.away || b['2'] || 0) || null,
-          })).filter(b => b.home_win || b.draw || b.away_win);
-          // Odds simples do evento
-          const ev2 = evData || {};
-          const simple = { home_win: ev2.odds_home, draw: ev2.odds_draw, away_win: ev2.odds_away,
-            over_25_goals: ev2.over_25, under_25_goals: ev2.under_25, btts_yes: ev2.btts };
-          return { bookmakers, odds: simple };
-        }
-        // Fallback: odds simples — suporta formato v2 {markets:{1x2:{HOME,DRAW,AWAY},...}}
         const ev2 = evData || {};
-        const mkts = od?.markets || {};
-        const x2 = mkts['1x2'] || {};
-        const ou25 = mkts['over_under_25'] || {};
-        const ou15 = mkts['over_under_15'] || {};
-        const ou35 = mkts['over_under_35'] || {};
-        const bttsM = mkts['btts'] || {};
-        const hw = x2.HOME ?? od?.home_win ?? od?.home ?? ev2.odds_home ?? null;
-        const dr = x2.DRAW ?? od?.draw ?? ev2.odds_draw ?? null;
-        const aw = x2.AWAY ?? od?.away_win ?? od?.away ?? ev2.odds_away ?? null;
-        const o15 = ou15.over ?? od?.over_15_goals ?? null;
-        const o25 = ou25.over ?? od?.over_25_goals ?? ev2.over_25 ?? null;
-        const o35 = ou35.over ?? od?.over_35_goals ?? null;
-        const u25 = ou25.under ?? od?.under_25_goals ?? ev2.under_25 ?? null;
-        const btts = bttsM.yes ?? od?.btts_yes ?? ev2.btts ?? null;
-        return { odds: { home_win: hw, draw: dr, away_win: aw,
-          over_15_goals: o15, over_25_goals: o25, over_35_goals: o35,
-          under_25_goals: u25, btts_yes: btts }};
+        // Odds simples do evento (sempre disponíveis do listing)
+        const simple = {
+          home_win:       ev2.odds_home  ?? null,
+          draw:           ev2.odds_draw  ?? null,
+          away_win:       ev2.odds_away  ?? null,
+          over_15_goals:  null,
+          over_25_goals:  ev2.over_25    ?? ev2.over_25_goals ?? null,
+          over_35_goals:  null,
+          under_25_goals: ev2.under_25   ?? ev2.under_25_goals ?? null,
+          btts_yes:       ev2.btts       ?? ev2.btts_yes ?? null,
+        };
+        if (odds.status !== 'fulfilled') return { odds: simple };
+        const od = odds.value;
+        // Formato v2 /api/v2/events/{id}/odds/ → {markets:{1x2:{HOME,DRAW,AWAY}, over_under_25:{over,under}, btts:{yes}}}
+        if (od?.markets) {
+          const x2  = od.markets['1x2']          || {};
+          const ou15= od.markets['over_under_15'] || {};
+          const ou25= od.markets['over_under_25'] || {};
+          const ou35= od.markets['over_under_35'] || {};
+          const bt  = od.markets['btts']          || {};
+          simple.home_win      = x2.HOME  ?? simple.home_win;
+          simple.draw          = x2.DRAW  ?? simple.draw;
+          simple.away_win      = x2.AWAY  ?? simple.away_win;
+          simple.over_15_goals = ou15.over ?? null;
+          simple.over_25_goals = ou25.over ?? simple.over_25_goals;
+          simple.over_35_goals = ou35.over ?? null;
+          simple.under_25_goals= ou25.under?? simple.under_25_goals;
+          simple.btts_yes      = bt.yes   ?? simple.btts_yes;
+          return { odds: simple };
+        }
+        // Formato v2 /api/v2/events/{id}/odds/comparison/ → {markets:{bookmaker_slug:{1x2:{HOME,DRAW,AWAY}},...}}
+        if (od?.markets && typeof od.markets === 'object' && !od.markets['1x2']) {
+          // comparison: cada chave é um bookmaker
+          const bkms = Object.entries(od.markets).map(([slug, mkts]) => {
+            const x2 = mkts['1x2'] || {};
+            return { bookmaker: slug, home_win: x2.HOME||null, draw: x2.DRAW||null, away_win: x2.AWAY||null };
+          }).filter(b => b.home_win || b.draw || b.away_win);
+          return { bookmakers: bkms, odds: simple };
+        }
+        // Array de casas (formato v1)
+        const arr = Array.isArray(od) ? od : Array.isArray(od?.results) ? od.results : null;
+        if (arr?.length) {
+          const bkms = arr.map(b => ({
+            bookmaker: b.bookmaker_name || b.bookmaker || b.name || '—',
+            home_win: parseFloat(b.home_win || b.home || 0) || null,
+            draw:     parseFloat(b.draw || 0) || null,
+            away_win: parseFloat(b.away_win || b.away || 0) || null,
+          })).filter(b => b.home_win || b.draw || b.away_win);
+          return { bookmakers: bkms, odds: simple };
+        }
+        return { odds: simple };
       })(),
       lineups: lineups.status === 'fulfilled' ? lineups.value : null,
       playerStats: playerStats.status === 'fulfilled' ? playerStats.value : null,
