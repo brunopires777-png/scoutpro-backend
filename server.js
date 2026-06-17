@@ -1506,8 +1506,6 @@ app.get('/api/h2h', async (req, res) => {
         (String(e.home_team_id)===String(home_id) && String(e.away_team_id)===String(away_id)) ||
         (String(e.home_team_id)===String(away_id) && String(e.away_team_id)===String(home_id)))
       .sort((a,b) => new Date(b.event_date) - new Date(a.event_date)).slice(0,10);
-    const all = [...(data.results||[]), ...(data2.results||[])]
-      .sort((a,b) => new Date(b.event_date) - new Date(a.event_date));
 
     // Calcular stats para o frontend
     let t1w=0, t2w=0, draws=0, totalGoals=0;
