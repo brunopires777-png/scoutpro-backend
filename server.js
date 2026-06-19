@@ -1,5 +1,5 @@
 const express = require('express');
-const { WebSocket: WS } = require('ws');
+
 const cors = require('cors');
 const fetch = (...args) => import('node-fetch').then(({ default: f }) => f(...args));
 const path = require('path');
@@ -2202,13 +2202,13 @@ const _wsClients = new Set();
 
 function conectarBSDWebSocket() {
   try {
+    const { WebSocket } = require('ws');
     const wsUrl = `wss://sports.bzzoiro.com/ws/live/?token=${BSD_TOKEN}`;
-    _bsdWs = new WS(wsUrl);
+    _bsdWs = new WebSocket(wsUrl);
     _bsdWs.on('open', () => console.log('[WS] Conectado à BSD'));
     _bsdWs.on('message', (data) => {
-      // Repassa para todos os clientes conectados
       _wsClients.forEach(client => {
-        if (client.readyState === WS.OPEN) client.send(data.toString());
+        if (client.readyState === 1) client.send(data.toString());
       });
     });
     _bsdWs.on('close', () => {
@@ -2217,7 +2217,7 @@ function conectarBSDWebSocket() {
     });
     _bsdWs.on('error', (e) => console.error('[WS] Erro BSD:', e.message));
   } catch(e) {
-    console.error('[WS] Falha ao conectar:', e.message);
+    console.error('[WS] ws não disponível, sem WebSocket:', e.message);
   }
 }
 
@@ -2225,14 +2225,18 @@ const server = app.listen(PORT, () => {
   console.log(`Scout Pro Backend v2 rodando na porta ${PORT}`);
 
   // WebSocket para clientes — expõe /ws
-  const { WebSocketServer } = require('ws');
-  const wss = new WebSocketServer({ server: server });
-  wss.on('connection', (ws) => {
-    _wsClients.add(ws);
-    ws.on('close', () => _wsClients.delete(ws));
-  });
-  // Conecta ao WebSocket da BSD
-  conectarBSDWebSocket();
+  // WebSocket server — usa ws se disponível
+  try {
+    const { WebSocketServer } = require('ws');
+    const wss = new WebSocketServer({ server });
+    wss.on('connection', (ws) => {
+      _wsClients.add(ws);
+      ws.on('close', () => _wsClients.delete(ws));
+    });
+    conectarBSDWebSocket();
+  } catch(e) {
+    console.log('[WS] ws não instalado, WebSocket desabilitado');
+  }
 
   // Mantém o servidor acordado no Render (plano gratuito dorme após 15min)
   const SELF_URL = process.env.RENDER_EXTERNAL_URL || `http://localhost:${PORT}`;
