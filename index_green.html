@@ -1140,13 +1140,14 @@ async function selecionarTime(id,name,logo){
   },80);
   // Carrega gráfico em background sem bloquear elenco
   carregarGraficoTime(id, name);
-  // Carrega histórico de últimos 10 jogos do time
+  // Carrega histórico de últimos 10 jogos do time — sempre logo após o gráfico
   let histBox=document.getElementById('historico-time-box');
   if(!histBox){
     histBox=document.createElement('div');
     histBox.id='historico-time-box';
-    grafBox.parentNode.insertBefore(histBox, document.getElementById('step2'));
   }
+  // Garante posição fixa: imediatamente depois do grafBox, sempre
+  grafBox.insertAdjacentElement('afterend', histBox);
   histBox.innerHTML='';
   carregarHistoricoTime(id, name);
   document.getElementById('lbl-sub').textContent='Selecione o jogador';
@@ -2984,6 +2985,7 @@ function voltarStep1(){
   document.getElementById('step1').style.display='block';
   document.getElementById('step3').innerHTML='';
   document.getElementById('grafico-time-box')?.remove();
+  document.getElementById('historico-time-box')?.remove();
   renderDestaques();
   renderDestaquesEspecificos();
 }
@@ -4059,7 +4061,7 @@ async function carregarHistoricoTime(teamId, teamName) {
   const box = document.getElementById('historico-time-box');
   if (!box) return;
   box.innerHTML = `<div style="border:1px solid rgba(57,255,20,.15);border-radius:16px;padding:14px;margin-bottom:12px;background:transparent">
-    <div class="slabel" style="margin-bottom:8px">📋 ÚLTIMOS 10 JOGOS</div>
+    <div class="slabel" style="margin-bottom:8px;color:#ffd740 !important">📋 ÚLTIMOS 10 JOGOS</div>
     <div id="hist-list-${teamId}"><div class="loading" style="padding:8px 0"><div class="spinner-wrap"><div class="spinner"></div></div></div></div>
   </div>`;
   try{
