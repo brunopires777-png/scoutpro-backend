@@ -2067,6 +2067,10 @@ function renderMtResumo(d){
       {k:'ball_possession',l:'POSSE',sf:'%'},
       {k:'total_shots',l:'CHUTES'},
       {k:'shots_on_target',l:'NO GOL'},
+      {compute:()=>({
+        h:_numFrom(_sh.passes,_sh.total_pass,_sh.total_passes,_sh.accurate_passes?.total,_sh.accurate_passes?.value)??0,
+        a:_numFrom(_sa.passes,_sa.total_pass,_sa.total_passes,_sa.accurate_passes?.total,_sa.accurate_passes?.value)??0
+      }),l:'PASSES'},
       {k:'corner_kicks',l:'ESCANTEIOS'},
       {keys:['throws','throw_ins','throwins'],l:'LATERAIS'},
       {keys:['offsides','offside'],l:'IMPEDIMENTOS'},
@@ -4418,4 +4422,4 @@ document.addEventListener('keydown',e=>{if(e.key==='Enter'&&document.activeEleme
   </div>
 </div>
 </body>
-</html>
+  </html>
