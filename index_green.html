@@ -2075,6 +2075,8 @@ function renderMtResumo(d){
       {keys:['throws','throw_ins','throwins'],l:'LATERAIS'},
       {keys:['offsides','offside'],l:'IMPEDIMENTOS'},
       {k:'fouls',l:'FALTAS'},
+      {keys:['tackles_won','tackle_won','tackles_total','tackles'],l:'DESARMES'},
+      {keys:['goalkeeper_saves','saves','gk_saves'],l:'DEFESAS'},
       {compute:()=>({h:_amareloHome,a:_amareloAway}),l:'AMARELOS'}
     ];
     _statsDiv.innerHTML=`<div style="margin-bottom:14px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.07);border-radius:14px;padding:14px">
@@ -4422,4 +4424,4 @@ document.addEventListener('keydown',e=>{if(e.key==='Enter'&&document.activeEleme
   </div>
 </div>
 </body>
-  </html>
+</html>
