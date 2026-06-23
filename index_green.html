@@ -127,6 +127,62 @@ body{
 .ts-btn.ts-green{background:#39FF14;color:#39FF14}
 .ts-btn.ts-blue{background:#00E5FF;color:#00E5FF}
 .ts-btn.ts-gold{background:#FFD700;color:#FFD700}
+.ts-btn.ts-purple{background:#C77DFF;color:#C77DFF}
+.ts-btn.ts-red{background:#FF3131;color:#FF3131}
+
+/* ── TEMAS ROXO E VERMELHO ── */
+.theme-purple{
+  --cyan:#C77DFF;--cyan2:#9b4dca;
+  --cyan-dim:rgba(199,125,255,0.10);--cyan-mid:rgba(199,125,255,0.20);
+  --green:#C77DFF;--green-dim:rgba(199,125,255,0.10);
+  --theme-glow:rgba(199,125,255,0.35);--border-bright:rgba(199,125,255,0.45);
+  --text:#f0e8ff;--text2:#b794f4;--text3:rgba(183,148,244,0.35);
+  --bg:#110e15;--bg-card:rgba(20,17,28,0.85);
+}
+.theme-red{
+  --cyan:#FF3131;--cyan2:#cc0000;
+  --cyan-dim:rgba(255,49,49,0.10);--cyan-mid:rgba(255,49,49,0.20);
+  --green:#FF3131;--green-dim:rgba(255,49,49,0.10);
+  --theme-glow:rgba(255,49,49,0.35);--border-bright:rgba(255,49,49,0.45);
+  --text:#ffe8e8;--text2:#ff9090;--text3:rgba(255,144,144,0.35);
+  --bg:#150d0d;--bg-card:rgba(28,14,14,0.85);
+}
+
+/* ── BOTTOM NAV ── */
+.bottom-nav{
+  position:fixed;bottom:0;left:0;right:0;z-index:300;
+  background:rgba(10,10,12,0.97);
+  border-top:1px solid rgba(255,255,255,0.07);
+  backdrop-filter:blur(24px);
+  display:flex;
+  padding:6px 4px max(16px,env(safe-area-inset-bottom,16px)) 4px;
+}
+.bn-item{
+  flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;
+  padding:7px 4px 3px;border-radius:14px;cursor:pointer;
+  transition:all 0.22s;background:none;border:none;position:relative;
+}
+.bn-item:hover{background:rgba(255,255,255,0.04);}
+.bn-item.active{background:var(--cyan-dim);}
+.bn-icon{width:22px;height:22px;color:rgba(255,255,255,0.25);transition:all 0.22s;flex-shrink:0;}
+.bn-item.active .bn-icon{color:var(--cyan);filter:drop-shadow(0 0 5px var(--theme-glow));}
+.bn-label{font-family:'Bebas Neue',sans-serif;font-size:9px;letter-spacing:0.07em;color:rgba(255,255,255,0.22);transition:color 0.22s;white-space:nowrap;}
+.bn-item.active .bn-label{color:var(--cyan);}
+.bn-live-dot{position:absolute;top:6px;right:calc(50% - 15px);width:6px;height:6px;border-radius:50%;background:#FF3131;box-shadow:0 0 6px #FF3131;animation:pulse 1s infinite;}
+
+/* ── CARDS AO VIVO — glow vermelho ── */
+.match-card.live{
+  border-color:rgba(255,49,49,0.28) !important;
+  box-shadow:0 0 0 1px rgba(255,49,49,0.06),0 0 32px rgba(255,49,49,0.14),var(--shadow-card) !important;
+}
+.match-card.live::after{
+  content:'';position:absolute;inset:0;border-radius:var(--radius-xl);
+  background:radial-gradient(ellipse 90% 55% at 50% 0%,rgba(255,49,49,0.06) 0%,transparent 70%);
+  pointer-events:none;
+}
+
+/* Ajuste de espaçamento para o bottom nav */
+.wrap{padding-bottom:90px !important;}
 
 /* ── NAV ── */
 .nav{display:flex;align-items:center;justify-content:space-between;margin-bottom:0.75rem;padding-bottom:1rem;border-bottom:1px solid rgba(255,255,255,0.06);gap:12px}
@@ -682,100 +738,36 @@ td.nd{color:rgba(255,255,255,0.2);font-size:13px}
 <div class="wrap">
   <div class="nav">
     <div class="nav-brand">
+      <!-- Ícone: reticle / crosshair analítico -->
       <div class="nav-logo">
-  <svg width="62" height="62" viewBox="0 0 62 62" fill="none" xmlns="http://www.w3.org/2000/svg">
-    <defs>
-      <linearGradient id="goldBody" x1="30%" y1="0%" x2="70%" y2="100%">
-        <stop offset="0%"   stop-color="#ffe97a"/>
-        <stop offset="18%"  stop-color="#ffd540"/>
-        <stop offset="40%"  stop-color="#c8920a"/>
-        <stop offset="58%"  stop-color="#e8b820"/>
-        <stop offset="78%"  stop-color="#a06800"/>
-        <stop offset="100%" stop-color="#ffd540"/>
-      </linearGradient>
-      <linearGradient id="goldBase" x1="0%" y1="0%" x2="100%" y2="100%">
-        <stop offset="0%"   stop-color="#ffe068"/>
-        <stop offset="50%"  stop-color="#b87800"/>
-        <stop offset="100%" stop-color="#ffd040"/>
-      </linearGradient>
-      <linearGradient id="goldHandle" x1="0%" y1="0%" x2="100%" y2="0%">
-        <stop offset="0%"   stop-color="#c8920a"/>
-        <stop offset="40%"  stop-color="#ffd540"/>
-        <stop offset="100%" stop-color="#a06800"/>
-      </linearGradient>
-      <linearGradient id="greenGlow" x1="50%" y1="0%" x2="50%" y2="100%">
-        <stop offset="0%"   stop-color="rgba(57,255,20,0.35)"/>
-        <stop offset="100%" stop-color="rgba(57,255,20,0)"/>
-      </linearGradient>
-      <filter id="trophyShadow" x="-30%" y="-20%" width="160%" height="160%">
-        <feDropShadow dx="0" dy="4" stdDeviation="5" flood-color="rgba(0,0,0,0.7)"/>
-        <feDropShadow dx="0" dy="0" stdDeviation="8" flood-color="rgba(57,255,20,0.25)"/>
-      </filter>
-      <filter id="shine">
-        <feGaussianBlur stdDeviation="1.5" result="blur"/>
-        <feComposite in="SourceGraphic" in2="blur" operator="over"/>
-      </filter>
-    </defs>
-
-    <!-- Sombra base -->
-    <ellipse cx="31" cy="59" rx="14" ry="3" fill="rgba(0,0,0,0.45)"/>
-
-    <!-- Grupo taça com filtro de sombra/glow -->
-    <g filter="url(#trophyShadow)">
-
-      <!-- BASE PLATAFORMA -->
-      <rect x="17" y="53" width="28" height="4.5" rx="2.2" fill="url(#goldBase)"/>
-      <rect x="18.5" y="53.2" width="25" height="1.2" rx="0.6" fill="rgba(255,255,255,0.25)"/>
-
-      <!-- HASTE CENTRAL -->
-      <rect x="26" y="44" width="10" height="10" rx="1" fill="url(#goldBody)"/>
-      <rect x="27" y="44.5" width="3" height="9" rx="0.5" fill="rgba(255,255,255,0.15)"/>
-
-      <!-- COLARINHO -->
-      <rect x="22" y="41.5" width="18" height="4" rx="2" fill="url(#goldBase)"/>
-      <rect x="23" y="42" width="16" height="1.5" rx="0.7" fill="rgba(255,255,255,0.3)"/>
-
-      <!-- CORPO DA TAÇA -->
-      <!-- Lado esquerdo curvo -->
-      <path d="M22 42 C18 40 14 34 14 27 C14 20 18 14 24 12 L38 12 C44 14 48 20 48 27 C48 34 44 40 40 42 Z"
-            fill="url(#goldBody)"/>
-
-      <!-- Faixas decorativas verticais (detalhe realista) -->
-      <path d="M26 13 C24 18 24 36 26 42" stroke="rgba(255,255,255,0.12)" stroke-width="1.2" fill="none"/>
-      <path d="M31 12 C31 18 31 36 31 42" stroke="rgba(255,255,255,0.08)" stroke-width="0.8" fill="none"/>
-      <path d="M36 13 C38 18 38 36 36 42" stroke="rgba(255,255,255,0.12)" stroke-width="1.2" fill="none"/>
-
-      <!-- Faixa horizontal central decorativa -->
-      <path d="M15 27 Q31 30 47 27" stroke="rgba(255,255,255,0.18)" stroke-width="1" fill="none"/>
-      <path d="M14.5 29 Q31 32 47.5 29" stroke="rgba(180,120,0,0.4)" stroke-width="0.7" fill="none"/>
-
-      <!-- Estrela no centro da taça -->
-      <path d="M31 20 L32.4 24.2 L36.8 24.2 L33.2 26.8 L34.6 31 L31 28.4 L27.4 31 L28.8 26.8 L25.2 24.2 L29.6 24.2 Z"
-            fill="rgba(255,255,255,0.55)" stroke="rgba(200,150,0,0.4)" stroke-width="0.3"/>
-
-      <!-- ALÇAS (handles) esquerda e direita -->
-      <!-- Esquerda -->
-      <path d="M14 24 C9 22 7 17 9 13 C11 10 14 11 14 13"
-            stroke="url(#goldHandle)" stroke-width="3.5" fill="none" stroke-linecap="round"/>
-      <path d="M14 24 C9.5 22.5 7.5 17.5 9.5 13.5 C11 11 13.5 11.8 13.5 13.5"
-            stroke="rgba(255,255,180,0.25)" stroke-width="1" fill="none" stroke-linecap="round"/>
-      <!-- Direita -->
-      <path d="M48 24 C53 22 55 17 53 13 C51 10 48 11 48 13"
-            stroke="url(#goldHandle)" stroke-width="3.5" fill="none" stroke-linecap="round"/>
-      <path d="M48 24 C52.5 22.5 54.5 17.5 52.5 13.5 C51 11 48.5 11.8 48.5 13.5"
-            stroke="rgba(255,255,180,0.25)" stroke-width="1" fill="none" stroke-linecap="round"/>
-
-      <!-- Reflexo de luz principal (realista) -->
-      <path d="M21 16 C22 13 25 12 27 13 C26 16 24 20 22 23 C20 21 19.5 18.5 21 16 Z"
-            fill="rgba(255,255,255,0.28)"/>
-      <ellipse cx="24" cy="16" rx="2.5" ry="1.5" fill="rgba(255,255,255,0.45)" transform="rotate(-30,24,16)"/>
-
-    </g>
-
-    <!-- Glow verde em baixo -->
-    <ellipse cx="31" cy="56" rx="20" ry="6" fill="url(#greenGlow)" opacity="0.7"/>
-  </svg>
-</div>
+        <svg width="62" height="62" viewBox="0 0 62 62" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <radialGradient id="rg" cx="50%" cy="50%" r="50%">
+              <stop offset="0%" stop-color="var(--cyan)" stop-opacity="0.18"/>
+              <stop offset="100%" stop-color="var(--cyan)" stop-opacity="0"/>
+            </radialGradient>
+            <filter id="gf"><feGaussianBlur stdDeviation="2.5" result="b"/><feComposite in="SourceGraphic" in2="b" operator="over"/></filter>
+          </defs>
+          <!-- Fundo com glow radial -->
+          <circle cx="31" cy="31" r="28" fill="url(#rg)"/>
+          <!-- Anel externo -->
+          <circle cx="31" cy="31" r="24" stroke="var(--cyan)" stroke-width="1.2" opacity="0.35" fill="none"/>
+          <!-- Anel médio -->
+          <circle cx="31" cy="31" r="16" stroke="var(--cyan)" stroke-width="1.5" opacity="0.55" fill="none"/>
+          <!-- Ponto central -->
+          <circle cx="31" cy="31" r="3.5" fill="var(--cyan)" opacity="0.9" filter="url(#gf)"/>
+          <!-- Cruz (crosshair) - 4 segmentos com gap no centro -->
+          <line x1="31" y1="7" x2="31" y2="22" stroke="var(--cyan)" stroke-width="1.5" stroke-linecap="round" opacity="0.7"/>
+          <line x1="31" y1="40" x2="31" y2="55" stroke="var(--cyan)" stroke-width="1.5" stroke-linecap="round" opacity="0.7"/>
+          <line x1="7" y1="31" x2="22" y2="31" stroke="var(--cyan)" stroke-width="1.5" stroke-linecap="round" opacity="0.7"/>
+          <line x1="40" y1="31" x2="55" y2="31" stroke="var(--cyan)" stroke-width="1.5" stroke-linecap="round" opacity="0.7"/>
+          <!-- Marcadores nos 45° (cantos) — estilo tático -->
+          <path d="M10 10 L10 16 M10 10 L16 10" stroke="var(--cyan)" stroke-width="1.5" stroke-linecap="round" opacity="0.5"/>
+          <path d="M52 10 L52 16 M52 10 L46 10" stroke="var(--cyan)" stroke-width="1.5" stroke-linecap="round" opacity="0.5"/>
+          <path d="M10 52 L10 46 M10 52 L16 52" stroke="var(--cyan)" stroke-width="1.5" stroke-linecap="round" opacity="0.5"/>
+          <path d="M52 52 L52 46 M52 52 L46 52" stroke="var(--cyan)" stroke-width="1.5" stroke-linecap="round" opacity="0.5"/>
+        </svg>
+      </div>
       <div>
         <div class="nav-title">Scout Pro</div>
         <div class="nav-sub">Cyber Analytics • 2026</div>
@@ -785,25 +777,25 @@ td.nd{color:rgba(255,255,255,0.2);font-size:13px}
       <button class="ts-btn ts-green active" onclick="setTheme('green')" title="Verde Neon"></button>
       <button class="ts-btn ts-blue" onclick="setTheme('blue')" title="Azul Elétrico"></button>
       <button class="ts-btn ts-gold" onclick="setTheme('gold')" title="Dourado Premium"></button>
+      <button class="ts-btn ts-purple" onclick="setTheme('purple')" title="Roxo"></button>
+      <button class="ts-btn ts-red" onclick="setTheme('red')" title="Vermelho"></button>
     </div>
   </div>
-  <div class="nav-tabs">
-      <button class="tab active" onclick="goPage('scout',this)">Scout</button>
-      <button class="tab" onclick="goPage('jogos',this)">Jogos & Predições<span class="live-dot" id="live-dot"></span></button>
-      <button class="tab" onclick="goPage('classificacao',this)">Tabela</button>
-      <button class="tab" onclick="goPage('arbitros',this)">Árbitros</button>
-      <button class="tab" onclick="goPage('historico',this)">Histórico</button>
-    </div>
-  </div>
+</div>
 
+<!-- STATUS BAR (fora do wrap para não ficar com padding) -->
+<div class="wrap" style="padding-top:0;padding-bottom:0">
   <div class="status-bar" id="status-bar">
     <div class="status-dot" id="status-dot"></div>
     <span id="status-txt">Verificando servidor...</span>
     <span id="cache-info"></span>
     <span class="live-pill" id="live-pill">🔴 AO VIVO</span>
   </div>
+</div>
 
-  <!-- SCOUT -->
+<!-- PÁGINAS -->
+<div class="wrap" style="padding-top:0">
+
   <div class="page active" id="page-scout">
     <div class="card" id="step1">
       <div class="card-head" style="margin-bottom:0.75rem">
@@ -1142,14 +1134,30 @@ function _iniciarPollingLive(){
 let jogosCarregados=false,predCarregadas=false;
 
 function setTheme(t){
-  document.body.className=document.body.className.replace(/theme-\w+/,'').trim()+' theme-'+t;
+  const map={green:'theme-green',blue:'theme-blue',gold:'theme-gold',purple:'theme-purple',red:'theme-red'};
+  document.body.className=(document.body.className.replace(/theme-\w+/g,'').trim()+' '+(map[t]||'theme-green')).trim();
   document.querySelectorAll('.ts-btn').forEach(b=>b.classList.remove('active'));
   const btn=document.querySelector('.ts-btn.ts-'+t);
   if(btn)btn.classList.add('active');
   try{localStorage.setItem('sp_theme',t);}catch(_){}
 }
-// Restaura tema salvo
 (()=>{try{const t=localStorage.getItem('sp_theme');if(t)setTheme(t);}catch(_){}})();
+
+// Navegação pelo bottom nav
+function goPageBN(name, btnId){
+  // Chama a lógica existente de goPage, mas usando o bottom nav como controle ativo
+  document.querySelectorAll('.bn-item').forEach(b=>b.classList.remove('active'));
+  const btn=document.getElementById(btnId);
+  if(btn)btn.classList.add('active');
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+  const pg=document.getElementById('page-'+name);
+  if(pg)pg.classList.add('active');
+  // Dispara carregamento automático (igual ao goPage existente)
+  if(name==='jogos')carregarJogos();
+  else if(name==='classificacao')carregarClassificacao();
+  else if(name==='arbitros')carregarArbitros();
+  else if(name==='historico')renderHistorico();
+}
 
 function goPage(name,el){
   if(name!=='jogos') pararListLive();
@@ -4723,5 +4731,56 @@ document.addEventListener('keydown',e=>{if(e.key==='Enter'&&document.activeEleme
     </div>
   </div>
 </div>
+
+<!-- BOTTOM NAV -->
+<nav class="bottom-nav" id="bottom-nav">
+  <button class="bn-item active" id="bn-scout" onclick="goPageBN('scout','bn-scout')">
+    <svg class="bn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="11" cy="11" r="6"/><circle cx="11" cy="11" r="2.5"/>
+      <line x1="15.5" y1="15.5" x2="20" y2="20"/>
+      <line x1="11" y1="5" x2="11" y2="7"/><line x1="11" y1="15" x2="11" y2="17"/>
+      <line x1="5" y1="11" x2="7" y2="11"/><line x1="15" y1="11" x2="17" y2="11"/>
+    </svg>
+    <span class="bn-label">SCOUT</span>
+  </button>
+  <button class="bn-item" id="bn-jogos" onclick="goPageBN('jogos','bn-jogos')">
+    <svg class="bn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+      <rect x="3" y="4" width="18" height="18" rx="3"/>
+      <line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/>
+      <line x1="3" y1="10" x2="21" y2="10"/>
+      <line x1="8" y1="14" x2="8" y2="14" stroke-width="2.5"/><line x1="12" y1="14" x2="12" y2="14" stroke-width="2.5"/><line x1="16" y1="14" x2="16" y2="14" stroke-width="2.5"/>
+      <line x1="8" y1="18" x2="8" y2="18" stroke-width="2.5"/><line x1="12" y1="18" x2="12" y2="18" stroke-width="2.5"/>
+    </svg>
+    <span class="bn-label">JOGOS</span>
+    <span class="bn-live-dot" id="bn-live-dot" style="display:none"></span>
+  </button>
+  <button class="bn-item" id="bn-classificacao" onclick="goPageBN('classificacao','bn-classificacao')">
+    <svg class="bn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+      <rect x="2" y="3" width="20" height="18" rx="2"/>
+      <line x1="2" y1="9" x2="22" y2="9"/>
+      <line x1="8" y1="3" x2="8" y2="21"/>
+      <circle cx="15" cy="15" r="2"/>
+      <line x1="15" y1="6" x2="15" y2="6" stroke-width="2.5"/>
+    </svg>
+    <span class="bn-label">TABELA</span>
+  </button>
+  <button class="bn-item" id="bn-arbitros" onclick="goPageBN('arbitros','bn-arbitros')">
+    <svg class="bn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+      <rect x="8" y="2" width="8" height="12" rx="1.5"/>
+      <path d="M8 8 C5 8 3 10 3 13 L3 19 C3 20.1 3.9 21 5 21 L19 21 C20.1 21 21 20.1 21 19 L21 13 C21 10 19 8 16 8"/>
+      <line x1="12" y1="14" x2="12" y2="18"/>
+    </svg>
+    <span class="bn-label">ÁRBITROS</span>
+  </button>
+  <button class="bn-item" id="bn-historico" onclick="goPageBN('historico','bn-historico')">
+    <svg class="bn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M12 8v4l3 3"/>
+      <path d="M3.05 11a9 9 0 1 0 .5-4"/>
+      <path d="M3 3v4h4"/>
+    </svg>
+    <span class="bn-label">HISTÓRICO</span>
+  </button>
+</nav>
+
 </body>
-            </html>
+  </html>
