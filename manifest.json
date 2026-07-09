@@ -1,0 +1,16 @@
+{
+  "name": "ESA — Esporte Scout Analytics",
+  "short_name": "ESA",
+  "description": "O app do Apostador de Futebol! Scout, predições e value bets em tempo real.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#0a0c0a",
+  "theme_color": "#0a0c0a",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-512-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
