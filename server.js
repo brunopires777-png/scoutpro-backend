@@ -2858,7 +2858,7 @@ const paginaLegalHTML = (titulo, corpo) => `<!DOCTYPE html>
 <div class="topo">
   <div>
     <div class="topo-logo">ESA</div>
-    <div class="topo-sub">Esporte Scout Analytics</div>
+    <div class="topo-sub">Esporte Scout Analytic</div>
   </div>
   <a class="back" href="/">← Voltar ao ESA</a>
 </div>
@@ -2874,7 +2874,7 @@ app.get('/termos', (req, res) => {
 <div class="atualizado">Última atualização: julho de 2026</div>
 
 <h2>1. Sobre o ESA</h2>
-<p>O ESA (Esporte Scout Analytics) é uma plataforma digital de análise estatística de futebol voltada para apostadores esportivos, desenvolvida e operada por Bruno Ferreira Pires. O app oferece dados, predições e análises com fins informativos — não constitui aconselhamento financeiro.</p>
+<p>O ESA (Esporte Scout Analytic) é uma plataforma digital de análise estatística de futebol voltada para apostadores esportivos, desenvolvida e operada por Bruno Ferreira Pires. O app oferece dados, predições e análises com fins informativos — não constitui aconselhamento financeiro.</p>
 
 <h2>2. Aceitação dos Termos</h2>
 <p>Ao criar uma conta ou utilizar o ESA, você concorda integralmente com estes Termos de Uso. Se não concordar, não utilize o serviço.</p>
@@ -2923,7 +2923,7 @@ app.get('/privacidade', (req, res) => {
 <div class="atualizado">Última atualização: julho de 2026</div>
 
 <h2>1. Responsável pelos Dados</h2>
-<p>Bruno Ferreira Pires é o responsável pelo tratamento dos dados pessoais coletados pelo ESA (Esporte Scout Analytics), em conformidade com a Lei Geral de Proteção de Dados (LGPD — Lei nº 13.709/2018).</p>
+<p>Bruno Ferreira Pires é o responsável pelo tratamento dos dados pessoais coletados pelo ESA (Esporte Scout Analytic), em conformidade com a Lei Geral de Proteção de Dados (LGPD — Lei nº 13.709/2018).</p>
 
 <h2>2. Dados Coletados</h2>
 <p>Coletamos apenas os dados necessários para o funcionamento do serviço:</p>
